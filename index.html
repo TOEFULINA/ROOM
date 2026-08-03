@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>the room — portfolio</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div id="loading-screen">
+    <div class="loading-inner">
+      <div class="loading-title">the room</div>
+      <div class="loading-sub">loading your stuff off the floor...</div>
+    </div>
+  </div>
+
+  <div id="intro-overlay">
+    <div class="intro-card">
+      <h1>welcome in</h1>
+      <p>this is my room. WASD to walk around, click and drag to look
+      around. the glowing bits are clickable — records, closet
+      merch, posters, the desk, the phone, the paper stack — click one and
+      the camera zooms right in on it (click anywhere, arrow keys, or Esc
+      to step back).</p>
+      <button id="enter-btn">step inside</button>
+    </div>
+  </div>
+
+  <div id="hint-bar">WASD to walk · drag to look around · click glowing items to zoom in</div>
+
+  <canvas id="scene"></canvas>
+
+  <!-- lightbox for viewing portfolio pieces -->
+  <div id="lightbox" class="hidden">
+    <div id="lightbox-backdrop"></div>
+    <div id="lightbox-card">
+      <button id="lightbox-close" aria-label="close">&times;</button>
+      <button id="lightbox-prev" aria-label="previous">&#8249;</button>
+      <div id="lightbox-media">
+        <canvas id="lightbox-canvas"></canvas>
+      </div>
+      <button id="lightbox-next" aria-label="next">&#8250;</button>
+      <div id="lightbox-info">
+        <div id="lightbox-kicker"></div>
+        <h2 id="lightbox-title"></h2>
+        <p id="lightbox-desc"></p>
+      </div>
+    </div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
