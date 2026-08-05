@@ -139,24 +139,49 @@ html, body {
 #eyelid-bottom.open { transform: translateY(100%); }
 #eyelid-top.done, #eyelid-bottom.done { pointer-events: none; }
 
-/* ---------- hint bar ---------- */
-#hint-bar {
+/* ---------- on-screen mobile move buttons ---------- */
+/* Hidden by default (and on any device with a real mouse/trackpad — the
+   "hover: none, pointer: coarse" pair below is the standard way to detect
+   touch-primary screens) so desktop players never see a d-pad they don't
+   need. Laid out as a 3x3 grid so w/a/s/d land in their natural compass
+   positions without hand-placing four separate offsets. */
+#mobile-controls {
   position: fixed;
+  left: 18px;
   bottom: 18px;
-  left: 50%;
-  transform: translateX(-50%);
   z-index: 20;
-  font-size: .78rem;
-  letter-spacing: .03em;
-  padding: 8px 16px;
-  border-radius: 999px;
-  background: rgba(10,8,13,0.55);
-  border: 1px solid rgba(255,255,255,0.08);
+  display: none;
+  grid-template-columns: repeat(3, 54px);
+  grid-template-rows: repeat(3, 54px);
+  gap: 8px;
   opacity: 0;
   transition: opacity .6s ease 1s;
   pointer-events: none;
+  touch-action: none;
 }
-#hint-bar.show { opacity: .8; }
+#mobile-controls.show { opacity: .85; pointer-events: auto; }
+@media (hover: none) and (pointer: coarse) {
+  #mobile-controls { display: grid; }
+}
+.mc-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10,8,13,0.55);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 12px;
+  color: #f2ece2;
+  font-size: 1.1rem;
+  line-height: 1;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.mc-btn:active { background: rgba(255,206,107,0.3); }
+.mc-w { grid-column: 2; grid-row: 1; }
+.mc-a { grid-column: 1; grid-row: 2; }
+.mc-s { grid-column: 2; grid-row: 2; }
+.mc-d { grid-column: 3; grid-row: 2; }
 
 /* ---------- lightbox ---------- */
 #lightbox {

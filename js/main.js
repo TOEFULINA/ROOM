@@ -1104,6 +1104,43 @@ const FOCUS_DURATION = 1.3; // seconds
 // same wide-board framing at a much shorter, room-safe distance.
 const POSTER_FOCUS_FOV = 40;
 
+// Framing math shared by every zoomed-in focus view (vinyl covers, props,
+// screens). The naive version of this only checked the object against the
+// VERTICAL fov, which works fine on a landscape screen (the wider
+// horizontal fov always shows more around the object than the vertical
+// fit needs) but crops hard on a narrow/portrait phone screen, where the
+// horizontal fov is actually the tighter of the two — a poster/phone/
+// computer screen wider than it is tall got its edges cut off there.
+// Solving for BOTH the height-fit and width-fit distance and taking
+// whichever is larger (same trick the closet rack view already used)
+// fixes that regardless of the object's shape or the screen's aspect
+// ratio.
+function computeThinAxis(size) {
+  if (size.x <= size.y && size.x <= size.z) return "x";
+  if (size.z <= size.x && size.z <= size.y) return "z";
+  return "y";
+}
+function computeFramedDistance(size, thinAxis, fov, frameFraction) {
+  // "thinAxis" is whichever local axis is the object's face normal (its
+  // depth) — the other two box dimensions are what's actually visible.
+  // World "up" (y) reads as screen-vertical unless y itself IS the thin
+  // axis (an object lying flat, screen facing straight up/down) — that
+  // case falls back to using the larger of the remaining two for both,
+  // a safe overestimate rather than a crop.
+  let visibleHeight, visibleWidth;
+  if (thinAxis === "y") {
+    visibleHeight = visibleWidth = Math.max(size.x, size.z);
+  } else {
+    visibleHeight = size.y;
+    visibleWidth = thinAxis === "x" ? size.z : size.x;
+  }
+  const vFovRad = THREE.MathUtils.degToRad(fov);
+  const hFovRad = 2 * Math.atan(Math.tan(vFovRad / 2) * camera.aspect);
+  const distForHeight = visibleHeight / 2 / (Math.tan(vFovRad / 2) * frameFraction);
+  const distForWidth = visibleWidth / 2 / (Math.tan(hFovRad / 2) * frameFraction);
+  return Math.max(distForHeight, distForWidth);
+}
+
 function computeFocusTransform(mesh) {
   mesh.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(mesh);
@@ -1121,8 +1158,7 @@ function computeFocusTransform(mesh) {
   const targetLocalY = mesh.userData.riseTargetY ?? mesh.position.y;
   center.y += (targetLocalY - mesh.position.y) * (worldScale.y || 1);
 
-  const coverSize = Math.max(size.x, size.y, size.z);
-  const distance = coverSize / 2 / (Math.tan(THREE.MathUtils.degToRad(FOCUS_FOV) / 2) * FOCUS_FRAME_FRACTION);
+  const distance = computeFramedDistance(size, computeThinAxis(size), FOCUS_FOV, FOCUS_FRAME_FRACTION);
 
   // camera sits directly in front of the cover's face (see
   // getSignedCoverAxis) rather than riding whatever angle it happened to
@@ -1232,8 +1268,7 @@ function computePropFocusTransform(group, boxTarget = group, fov = FOCUS_FOV) {
   const box = computeFocusBox(boxTarget);
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
-  const coverSize = Math.max(size.x, size.y, size.z);
-  const distance = coverSize / 2 / (Math.tan(THREE.MathUtils.degToRad(fov) / 2) * FOCUS_FRAME_FRACTION);
+  const distance = computeFramedDistance(size, computeThinAxis(size), fov, FOCUS_FRAME_FRACTION);
   const axis = computePropFrontAxis(group, camera.position, boxTarget);
   const pos = center.clone().addScaledVector(axis, distance);
   return { pos, target: center };
@@ -1286,8 +1321,7 @@ function computeScreenFocusTransform(mesh) {
   const box = new THREE.Box3().setFromObject(mesh);
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
-  const coverSize = Math.max(size.x, size.y, size.z);
-  const distance = coverSize / 2 / (Math.tan(THREE.MathUtils.degToRad(FOCUS_FOV) / 2) * FOCUS_FRAME_FRACTION);
+  const distance = computeFramedDistance(size, computeThinAxis(size), FOCUS_FOV, FOCUS_FRAME_FRACTION);
   const axis = getMeshFrontAxis(mesh, camera.position);
   const pos = center.clone().addScaledVector(axis, distance);
   return { pos, target: center };
@@ -1694,7 +1728,7 @@ function openEyesReveal() {
       eyeBottom.classList.add("slow-open");
       eyeTop.classList.add("open");
       eyeBottom.classList.add("open");
-      document.getElementById("hint-bar").classList.add("show");
+      document.getElementById("mobile-controls").classList.add("show");
       setTimeout(() => {
         eyeTop.classList.add("done");
         eyeBottom.classList.add("done");
@@ -1721,7 +1755,7 @@ function ensureEyesOpen() {
   if (eyeTop.classList.contains("open")) return;
   eyeTop.classList.add("slow-open", "open", "done");
   eyeBottom.classList.add("slow-open", "open", "done");
-  document.getElementById("hint-bar").classList.add("show");
+  document.getElementById("mobile-controls").classList.add("show");
 }
 
 document.getElementById("get-up-btn").addEventListener("click", () => {
@@ -1750,9 +1784,12 @@ window.addEventListener("resize", () => {
 const moveKeys = { w: false, a: false, s: false, d: false };
 const MOVE_SPEED = 1.8; // meters/second, roughly a walking pace
 
-window.addEventListener("keydown", (e) => {
+// Shared by the keyboard and the on-screen mobile buttons below, so every
+// rule (can't walk while viewing a lightbox piece, standing up out of the
+// seat, ignored while zoomed into an item) applies identically no matter
+// where the "press" came from.
+function pressMoveKey(k) {
   if (!lightbox.classList.contains("hidden")) return; // don't walk while viewing a piece
-  const k = e.key.toLowerCase();
   if (!(k in moveKeys)) return;
 
   // pressing a movement key while sitting in the chair stands you up and
@@ -1770,10 +1807,16 @@ window.addEventListener("keydown", (e) => {
 
   if (viewState !== "free") return;
   moveKeys[k] = true;
+}
+function releaseMoveKey(k) {
+  if (k in moveKeys) moveKeys[k] = false;
+}
+
+window.addEventListener("keydown", (e) => {
+  pressMoveKey(e.key.toLowerCase());
 });
 window.addEventListener("keyup", (e) => {
-  const k = e.key.toLowerCase();
-  if (k in moveKeys) moveKeys[k] = false;
+  releaseMoveKey(e.key.toLowerCase());
 });
 window.addEventListener("blur", () => {
   moveKeys.w = moveKeys.a = moveKeys.s = moveKeys.d = false;
@@ -1784,6 +1827,33 @@ new MutationObserver(() => {
     moveKeys.w = moveKeys.a = moveKeys.s = moveKeys.d = false;
   }
 }).observe(lightbox, { attributes: true, attributeFilter: ["class"] });
+
+// ---------------------------------------------------------------- on-screen mobile move buttons
+// Touch devices don't have a keyboard, so a small WASD-style d-pad
+// (#mobile-controls in index.html, only shown via CSS on coarse-pointer/
+// no-hover screens) drives the exact same moveKeys state through
+// pressMoveKey/releaseMoveKey. Pointer events (not touch/click) so this
+// works the same whether it's a finger or a mouse, and pointercancel/
+// pointerleave make sure a key doesn't get stuck "down" if a finger slides
+// off the button instead of lifting cleanly.
+const MOBILE_MOVE_BUTTON_KEYS = { "mc-w": "w", "mc-a": "a", "mc-s": "s", "mc-d": "d" };
+Object.entries(MOBILE_MOVE_BUTTON_KEYS).forEach(([id, key]) => {
+  const btn = document.getElementById(id);
+  if (!btn) return;
+  const press = (e) => {
+    e.preventDefault();
+    pressMoveKey(key);
+  };
+  const release = (e) => {
+    e.preventDefault();
+    releaseMoveKey(key);
+  };
+  btn.addEventListener("pointerdown", press);
+  btn.addEventListener("pointerup", release);
+  btn.addEventListener("pointercancel", release);
+  btn.addEventListener("pointerleave", release);
+  btn.addEventListener("contextmenu", (e) => e.preventDefault());
+});
 
 const _moveForward = new THREE.Vector3();
 const _moveRight = new THREE.Vector3();
