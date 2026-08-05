@@ -37,13 +37,19 @@ export function loadRoomModel(onProgress) {
 
   // both files' progress is tracked separately and combined into one
   // overall fraction below — the loading screen shouldn't jump backwards
-  // or stall just because one file happens to be smaller than the other
+  // or stall just because one file happens to be smaller than the other.
+  // Some servers (GitHub Pages' CDN included) don't always send a
+  // Content-Length for these, so a progress event's evt.total can come
+  // back 0/undefined for one file while the other reports normally —
+  // dividing loaded-so-far by an incomplete total is what caused the
+  // percentage to read over 100%. Clamping here keeps the display sane
+  // either way; it doesn't affect whether the actual load succeeds.
   const progressState = { main: { loaded: 0, total: 0 }, extras: { loaded: 0, total: 0 } };
   function reportProgress() {
     if (!onProgress) return;
     const totalLoaded = progressState.main.loaded + progressState.extras.loaded;
     const totalBytes = progressState.main.total + progressState.extras.total;
-    if (totalBytes) onProgress(totalLoaded / totalBytes);
+    if (totalBytes) onProgress(Math.min(1, totalLoaded / totalBytes));
   }
   function loadGltf(path, key) {
     return new Promise((resolve, reject) => {
