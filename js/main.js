@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js";
 import { loadRoomModel } from "./loadModel.js";
-import { getArtCanvas } from "./textures.js";
-import { CLOTHING } from "./data.js";
+import { getArtCanvas, getArtTexture } from "./textures.js";
+import { CLOTHING, POSTER_SETS } from "./data.js";
 import { applyBakedLook } from "./bakedLook.js";
 
 // ---------------------------------------------------------------- renderer
@@ -181,7 +181,22 @@ const VINYL_MESH_PATTERN = /^(Box_n3d|Vinyl[ _]\d+)/i;
 // showing through, it reads as pitch black night outside. Tagging it with a
 // soft daylight emissive fixes that without needing a full skybox.
 const WINDOW_MESH_PATTERN = /window\s*pane/i;
-const DAYLIGHT_COLOR = "#cfe9ff"; // soft pale sky blue-white
+// Now that there's a real WindowBackdrop object outside (see below), the
+// glass should actually be see-through instead of faked with an emissive
+// tint — GLASS_OPACITY is how much of the room's own reflection/tint stays
+// on top of the backdrop showing through (0 = fully clear, 1 = opaque).
+const GLASS_OPACITY = 0.35;
+
+// The fake-exterior backdrop (big cylinder/box outside the window, modeled
+// in Blender) — name that object "WindowBackdrop" (anything starting with
+// it) and it'll automatically get two fixes applied here, so there's no
+// need to fight normals direction in Blender at all:
+//   1. Forced to render double-sided, so it shows up correctly whichever
+//      way its normals happen to face.
+//   2. Swapped to an unlit material (same texture, just not affected by
+//      the room's interior lights) — a distant exterior shouldn't visibly
+//      dim/brighten when the room's lamp does.
+const WINDOW_BACKDROP_MESH_PATTERN = /^WindowBackdrop/i;
 
 // the crate sits close enough to the bed that the "back of the record" shot
 // looks straight into the bedframe — we hide it for the duration of the
@@ -194,8 +209,9 @@ const BEDFRAME_MESH_PATTERN = /bedframe/i;
 const BOOKSHELF_MESH_PATTERN = /^Bookshelf[ _]1/i;
 
 // walking WASD shouldn't let you clip straight through furniture — the
-// drawers get the same hard-stop treatment as the outer room walls
-const OBSTACLE_MESH_PATTERN = /^Drawers/i;
+// drawers, the closet wall, and the ladder get the same hard-stop
+// treatment as the outer room walls
+const OBSTACLE_MESH_PATTERN = /^(Drawers|Closet_wall|Ladder)/i;
 
 // nudges the stool a bit further toward the window/sunlight — direction
 const OBSTACLE_MARGIN = 0.15; // meters — gives the camera a little "body" so it can't hug the exact edge
@@ -239,9 +255,15 @@ const SCREEN_MESH_PATTERNS = {
   "phone-contact me": /^phone_screen/i,
 };
 
-// the graphic design posters are 4 separate canvases under one group —
-// each canvas is its own clickable piece, not one combined item
+// the graphic design posters are several canvases under one group — clicking
+// any of them frames the WHOLE wall (so all canvases are visible at once),
+// and arrow keys cycle every canvas through POSTER_SETS (data.js) together,
+// same idea as the vinyl cover flip but for a whole board of images at once
 const POSTER_GROUP_PATTERN = /^posters - graphic design$/i;
+let posterGroupRef = null; // the group itself, so stepFocus can tell "is this the poster wall?"
+let posterCanvases = []; // every mesh canvas inside the group
+const posterOriginalMaterials = new Map(); // canvas -> its original (baked) material, restored at set index 0
+let posterSetIndex = 0; // 0 = whatever's already baked in the model; 1+ = POSTER_SETS[index - 1]
 
 // the chair gets its own "sit down" camera snap instead of the generic
 // prop zoom (see computeSeatTransform) — camera goes to roughly seated eye
@@ -460,6 +482,8 @@ loadRoomModel((progress) => {
           });
           if (!meshes.length) return;
           const idx = modelRackShirts.length;
+          const restBox = new THREE.Box3().setFromObject(root);
+          const restHalfWidth = (rackAxisKey === "x" ? restBox.max.x - restBox.min.x : restBox.max.z - restBox.min.z) / 2;
           modelRackShirts.push({
             title: cleanTitle(root.name),
             group: root,
@@ -467,7 +491,9 @@ loadRoomModel((progress) => {
             baseQuat: root.quaternion.clone(),
             restLocalPos: root.position.clone(),
             axisValue: center[rackAxisKey],
+            restHalfWidth, // resting world-space half-extent along the rack axis — used to size the neighbor-clearance push below
             rotBlend: 0, // 0 = resting orientation, 1 = fully turned to face the camera
+            neighborPushBlend: 0, // eased world-space nudge away from whichever shirt is selected, so the enlarged/turned selection doesn't overlap its neighbors
           });
           meshes.forEach((m) => {
             m.userData = { interactive: true, kind: "rackShirt", index: idx };
@@ -637,28 +663,54 @@ loadRoomModel((progress) => {
       }
     });
 
-    // the graphic design posters — each canvas is its own clickable piece
-    // rather than one combined item, same as the vinyl records
+    // the graphic design posters — several canvases under one wall group.
+    // Registered as ONE shared modelProps entry (whole-group pattern, same
+    // idea as WHOLE_GROUP_NAMES above) so clicking any canvas frames the
+    // whole wall; arrow keys then cycle every canvas through POSTER_SETS
+    // together via stepPosterSet (see stepFocus dispatcher below).
     safeStep("poster wiring", () => {
       let posterGroup = null;
       model.traverse((obj) => {
         if (!posterGroup && POSTER_GROUP_PATTERN.test(rawName(obj))) posterGroup = obj;
       });
       if (posterGroup) {
-        posterGroup.children.forEach((canvas) => {
-          if (!canvas.isMesh) return;
-          const idx = modelProps.length;
-          modelProps.push({ title: cleanTitle(rawName(canvas)), group: canvas });
-          canvas.userData = { interactive: true, kind: "groupModel", index: idx };
+        const canvases = [];
+        posterGroup.traverse((child) => {
+          if (child.isMesh) canvases.push(child);
         });
+        if (canvases.length) {
+          const idx = modelProps.length;
+          // focusTarget: frame the box3 around just the canvas meshes, not
+          // the whole group subtree — the group can include frame/backing
+          // geometry or a hung ornament that sticks out further, which was
+          // inflating the bounding box and pushing the focus camera way too
+          // far back (ending up outside the room entirely).
+          modelProps.push({
+            title: cleanTitle(rawName(posterGroup)),
+            group: posterGroup,
+            focusTarget: canvases,
+            focusFov: POSTER_FOCUS_FOV,
+          });
+          canvases.forEach((canvas) => {
+            canvas.userData = { interactive: true, kind: "groupModel", index: idx };
+            posterOriginalMaterials.set(canvas, canvas.material);
+          });
+          posterGroupRef = posterGroup;
+          posterCanvases = canvases;
+        } else {
+          console.warn('poster wiring: "posters - graphic design" group found but it has no canvas meshes.');
+        }
       } else {
         console.warn('poster wiring: no "posters - graphic design" group found in the model.');
       }
     });
 
     // tint the window glass with a soft daylight emissive so it doesn't
-    // read as a black void at night — see WINDOW_MESH_PATTERN above
-    safeStep("window daylight tint", () => {
+    // read as a black void at night — see WINDOW_MESH_PATTERN above. Now
+    // that a real WindowBackdrop object exists just outside, the glass is
+    // made properly see-through instead of tinted with a fake emissive
+    // glow, so the backdrop actually shows through it.
+    safeStep("window glass transparency", () => {
       let windowCount = 0;
       model.traverse((obj) => {
         if (!obj.isMesh) return;
@@ -666,16 +718,48 @@ loadRoomModel((progress) => {
         const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
         materials.forEach((mat) => {
           if (!mat) return;
-          mat.emissive = new THREE.Color(DAYLIGHT_COLOR);
-          // stays barely visible (the glass is still ~85% transparent) but
-          // enough to read as bright daytime sky rather than nothing at all
-          mat.emissiveIntensity = 12;
+          mat.emissiveIntensity = 0;
+          mat.transparent = true;
+          mat.opacity = GLASS_OPACITY;
+          // a dark near-opaque glass material (the metallic look it had
+          // for the old fake-glow approach) reads as a black smear once
+          // it's actually transparent — dial that back so it looks like
+          // clear glass with a bit of tint/reflection, not a dark filter
+          mat.metalness = Math.min(mat.metalness ?? 0, 0.2);
+          mat.depthWrite = false; // avoids the backdrop being sorted/hidden behind the glass
           mat.needsUpdate = true;
         });
         windowCount++;
       });
       if (windowCount === 0) {
-        console.warn('daylight tint: no mesh matching "Windowpane" found in the model.');
+        console.warn('window glass transparency: no mesh matching "Windowpane" found in the model.');
+      }
+    });
+
+    // fake exterior backdrop visible through the window — see
+    // WINDOW_BACKDROP_MESH_PATTERN above for the naming convention
+    safeStep("window backdrop unlit + double-sided", () => {
+      let backdropCount = 0;
+      model.traverse((obj) => {
+        if (!obj.isMesh || !WINDOW_BACKDROP_MESH_PATTERN.test(obj.name)) return;
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        const newMats = mats.map((mat) => {
+          if (!mat) return mat;
+          const unlit = new THREE.MeshBasicMaterial({
+            name: mat.name,
+            map: mat.map || null,
+            color: mat.map ? 0xffffff : mat.color,
+            side: THREE.DoubleSide,
+          });
+          return unlit;
+        });
+        obj.material = Array.isArray(obj.material) ? newMats : newMats[0];
+        obj.castShadow = false;
+        obj.receiveShadow = false;
+        backdropCount++;
+      });
+      if (backdropCount > 0) {
+        console.info(`window backdrop: ${backdropCount} mesh(es) made unlit + double-sided.`);
       }
     });
 
@@ -692,6 +776,7 @@ loadRoomModel((progress) => {
     });
 
     document.getElementById("loading-screen").classList.add("hidden");
+    safeStep("seated intro", startSeatedIntro);
   })
   .catch((err) => {
     console.error("Failed to load models/room.glb:", err);
@@ -1012,6 +1097,12 @@ let preFocusCam = null; // { pos, target, fov } to restore when leaving focus
 const FOCUS_FOV = 15; // narrow "telephoto" FOV flattens perspective for a near-orthographic look
 const FOCUS_FRAME_FRACTION = 0.95; // how much of the frame height the cover fills — higher = camera sits closer
 const FOCUS_DURATION = 1.3; // seconds
+// The poster wall spans ~1m across (4 canvases side by side) — at the
+// telephoto FOCUS_FOV, framing that whole width pushes the camera back
+// ~4x the object size, which is far enough to clip through the opposite
+// wall and land outside the room. A wider, more "normal" lens keeps the
+// same wide-board framing at a much shorter, room-safe distance.
+const POSTER_FOCUS_FOV = 40;
 
 function computeFocusTransform(mesh) {
   mesh.updateMatrixWorld(true);
@@ -1107,27 +1198,43 @@ function stepVinylFocus(dir) {
 // mesh parts (a shirt, the phone) or just a single mesh (a poster canvas).
 let focusedPropIndex = -1;
 
-function computePropFrontAxis(group, viewerPos) {
-  if (group.userData.frontAxis) return group.userData.frontAxis;
-  const box = new THREE.Box3().setFromObject(group);
+// Builds the bounding box from a specific list of meshes instead of an
+// object's whole subtree — needed for props like the poster wall, where the
+// "group" contains extra depth (frame/backing geometry, a hung ornament)
+// that would otherwise blow up the box size and push the focus camera way
+// too far back (even outside the room). Falls back to the plain subtree box
+// when no override list is given.
+function computeFocusBox(target) {
+  const objs = Array.isArray(target) ? target : [target];
+  const box = new THREE.Box3();
+  objs.forEach((o) => {
+    o.updateMatrixWorld(true);
+    box.expandByObject(o);
+  });
+  return box;
+}
+
+function computePropFrontAxis(cacheObj, viewerPos, boxTarget = cacheObj) {
+  if (cacheObj.userData.frontAxis) return cacheObj.userData.frontAxis;
+  const box = computeFocusBox(boxTarget);
   const size = box.getSize(new THREE.Vector3());
   const axis = size.x <= size.z ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 0, 1);
   const center = box.getCenter(new THREE.Vector3());
   const towardCam = new THREE.Vector3().subVectors(viewerPos, center);
   towardCam.y = 0;
   if (axis.dot(towardCam) < 0) axis.negate();
-  group.userData.frontAxis = axis;
+  cacheObj.userData.frontAxis = axis;
   return axis;
 }
 
-function computePropFocusTransform(group) {
+function computePropFocusTransform(group, boxTarget = group, fov = FOCUS_FOV) {
   group.updateMatrixWorld(true);
-  const box = new THREE.Box3().setFromObject(group);
+  const box = computeFocusBox(boxTarget);
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
   const coverSize = Math.max(size.x, size.y, size.z);
-  const distance = coverSize / 2 / (Math.tan(THREE.MathUtils.degToRad(FOCUS_FOV) / 2) * FOCUS_FRAME_FRACTION);
-  const axis = computePropFrontAxis(group, camera.position);
+  const distance = coverSize / 2 / (Math.tan(THREE.MathUtils.degToRad(fov) / 2) * FOCUS_FRAME_FRACTION);
+  const axis = computePropFrontAxis(group, camera.position, boxTarget);
   const pos = center.clone().addScaledVector(axis, distance);
   return { pos, target: center };
 }
@@ -1199,10 +1306,11 @@ function enterPropFocus(index) {
   canvas.classList.remove("hovering");
   viewState = "tweening";
 
+  const fov = entry.focusFov || FOCUS_FOV;
   const { pos, target } = entry.screenMesh
     ? computeScreenFocusTransform(entry.screenMesh)
-    : computePropFocusTransform(entry.group);
-  startCameraTween(pos, target, FOCUS_FOV, FOCUS_DURATION, () => {
+    : computePropFocusTransform(entry.group, entry.focusTarget, fov);
+  startCameraTween(pos, target, fov, FOCUS_DURATION, () => {
     viewState = "focused";
   });
 }
@@ -1233,12 +1341,41 @@ function stepPropFocus(dir) {
   viewState = "tweening";
 
   const entry = modelProps[nextIndex];
+  const fov = entry.focusFov || FOCUS_FOV;
   const { pos, target } = entry.screenMesh
     ? computeScreenFocusTransform(entry.screenMesh)
-    : computePropFocusTransform(entry.group);
-  startCameraTween(pos, target, FOCUS_FOV, 0.9, () => {
+    : computePropFocusTransform(entry.group, entry.focusTarget, fov);
+  startCameraTween(pos, target, fov, 0.9, () => {
     viewState = "focused";
   });
+}
+
+// ---------------------------------------------------------------- poster wall: texture-set cycling
+// Set 0 is always whatever's already baked onto the canvases in the model
+// (restored from posterOriginalMaterials). Sets 1+ come from POSTER_SETS
+// (data.js) — each canvas gets a fresh unlit MeshBasicMaterial built from
+// that set's texture (a generated placeholder canvas until real images are
+// dropped into data.js, same convention as CLOTHING/VINYL_COVERS).
+function setPosterSet(index) {
+  if (!posterCanvases.length) return;
+  const total = POSTER_SETS.length + 1;
+  posterSetIndex = ((index % total) + total) % total;
+  posterCanvases.forEach((canvas, i) => {
+    if (posterSetIndex === 0) {
+      canvas.material = posterOriginalMaterials.get(canvas);
+      return;
+    }
+    const set = POSTER_SETS[posterSetIndex - 1];
+    const entry = set[i % set.length];
+    canvas.material = new THREE.MeshBasicMaterial({
+      map: getArtTexture(entry, "cover"),
+      toneMapped: false,
+    });
+  });
+}
+
+function stepPosterSet(dir) {
+  setPosterSet(posterSetIndex + dir);
 }
 
 // ---------------------------------------------------------------- chair: "sit down" camera snap
@@ -1251,9 +1388,11 @@ function stepPropFocus(dir) {
 // vinyl covers: face whichever way points toward the room's open interior,
 // since that's how the chair would actually be arranged to sit in.
 let focusedSeatIndex = -1;
-const SEAT_FOV = 42; // wider than the prop/vinyl zoom — this is a "look around the room" view, not a close-up
+const SEAT_FOV = 46; // wider than the prop/vinyl zoom — this is a "look around the room" view, not a close-up
 const SEAT_HEIGHT_FRACTION = 0.55; // how far up the chair's own bounding height the eyes sit — low/reclined like a Poäng
 const SEAT_FORWARD_NUDGE = 0.12; // meters forward off dead-center, so the view isn't buried in the backrest
+const SEAT_LOOK_DISTANCE = 3; // meters out along faceDir the look-at target sits
+const SEAT_LOOK_UP = 1.0; // meters the look-at target is raised above eye level — tilts the view up toward the loft/self-portrait instead of dead-level at the wall (was 1.6, brought down some)
 
 function computeSeatTransform(group) {
   group.updateMatrixWorld(true);
@@ -1269,8 +1408,8 @@ function computeSeatTransform(group) {
 
   const eyeY = box.min.y + size.y * SEAT_HEIGHT_FRACTION;
   const pos = new THREE.Vector3(center.x, eyeY, center.z).addScaledVector(faceDir, SEAT_FORWARD_NUDGE);
-  const target = pos.clone().addScaledVector(faceDir, 3); // look straight out into the room
-  target.y = eyeY - 0.15; // a slight natural downward tilt rather than a dead-level stare
+  const target = pos.clone().addScaledVector(faceDir, SEAT_LOOK_DISTANCE);
+  target.y = eyeY + SEAT_LOOK_UP; // high-angled look up toward the loft, instead of dead-level at the wall
   return { pos, target };
 }
 
@@ -1299,6 +1438,17 @@ function exitSeatFocus() {
   viewState = "tweening";
   focusedSeatIndex = -1;
   focusedKind = null;
+
+  // if the black-screen menu (see startSeatedIntro / get-up-btn below) is
+  // still up, clear it — covers standing up via WASD/Escape before ever
+  // clicking a menu button, so it never gets stuck showing over a
+  // free-roam view
+  document.getElementById("intro-overlay").classList.add("hidden");
+  // in case WASD/Escape fired before the "get up" button ever opened the
+  // eyelids (menu's shown on the still-closed black screen — see
+  // startSeatedIntro), make sure they're open so standing up doesn't leave
+  // you staring at black; a no-op if openEyesReveal() already ran
+  ensureEyesOpen();
 
   const { pos, target, fov } = preFocusCam;
   startCameraTween(pos, target, fov, FOCUS_DURATION, () => {
@@ -1455,7 +1605,11 @@ function exitFocus() {
 }
 function stepFocus(dir) {
   if (focusedKind === "vinyl") stepVinylFocus(dir);
-  else if (focusedKind === "prop") stepPropFocus(dir);
+  else if (focusedKind === "prop") {
+    const entry = modelProps[focusedPropIndex];
+    if (entry && entry.group === posterGroupRef) stepPosterSet(dir);
+    else stepPropFocus(dir);
+  }
   // no stepSeatFocus — there's only one chair right now, arrow keys are a
   // no-op while sitting rather than cycling to nothing
   else if (focusedKind === "rack") stepRackFocus(dir);
@@ -1482,11 +1636,103 @@ function easeInOutCubic(x) {
   return x < 0.5 ? 16 * x * x * x * x * x : 1 - Math.pow(-2 * x + 2, 5) / 2;
 }
 
-// ---------------------------------------------------------------- intro
-// (loading screen is hidden once the model finishes loading, see above)
-document.getElementById("enter-btn").addEventListener("click", () => {
-  document.getElementById("intro-overlay").classList.add("hidden");
+// ---------------------------------------------------------------- intro / start menu
+// The site starts already seated — no separate "wake up" choice, and no
+// blur. As soon as the model + chair are ready (see startSeatedIntro,
+// called right after the loading screen hides), the camera snaps straight
+// into the chair with no visible tween (the eyelids' default CSS state
+// already fully covers the screen, so the snap itself is invisible), and
+// the "flat portfolio" / "get up" menu comes up immediately, sitting on
+// that same still-closed black screen. Only once you actually click
+// "get up" do the eyelids blink a few times and part to reveal the seated
+// view underneath (see openEyesReveal).
+function startSeatedIntro() {
+  if (!modelSeats.length) return; // no chair found in this export — stay in free-roam, nothing to seat into
+
+  // this is the normal free-roam start (camera.position/controls.target/fov
+  // set by the "camera framing" step above) — kept so "get up" has a real
+  // place to tween back out to, via the same exitSeatFocus() the chair's
+  // own click-to-sit uses
+  preFocusCam = { pos: camera.position.clone(), target: controls.target.clone(), fov: camera.fov };
+
+  const entry = modelSeats[0];
+  hovered = null;
+  controls.enabled = false;
+  canvas.classList.remove("hovering");
+
+  const { pos, target } = computeSeatTransform(entry.group);
+  camera.position.copy(pos);
+  controls.target.copy(target);
+  camera.fov = SEAT_FOV;
+  camera.updateProjectionMatrix();
+  camera.lookAt(target);
+  syncLookAnglesFromTarget();
+
+  focusedSeatIndex = 0;
+  focusedKind = "seat";
+  viewState = "focused";
+
+  document.getElementById("intro-overlay").classList.remove("hidden");
+}
+
+// parts the eyelids (a few quick partial-open/close blinks via .blink,
+// then the real slow reveal via .slow-open — see style.css) to uncover the
+// already-seated view. Safe to call more than once — bails out if the
+// eyelids are already open (or mid-opening) so exitSeatFocus can also call
+// this defensively without double-triggering the animation.
+function openEyesReveal() {
+  const eyeTop = document.getElementById("eyelid-top");
+  const eyeBottom = document.getElementById("eyelid-bottom");
+  if (eyeTop.classList.contains("open")) return;
+
+  const BLINK_COUNT = 3;
+  const BLINK_OPEN_MS = 220; // must match .blink's transition duration
+  const BLINK_GAP_MS = 180; // beat of "closed" between blinks
+  function blinkThenWake(blinksLeft) {
+    if (blinksLeft <= 0) {
+      eyeTop.classList.add("slow-open");
+      eyeBottom.classList.add("slow-open");
+      eyeTop.classList.add("open");
+      eyeBottom.classList.add("open");
+      document.getElementById("hint-bar").classList.add("show");
+      setTimeout(() => {
+        eyeTop.classList.add("done");
+        eyeBottom.classList.add("done");
+      }, 1200);
+      return;
+    }
+    eyeTop.classList.add("blink");
+    eyeBottom.classList.add("blink");
+    setTimeout(() => {
+      eyeTop.classList.remove("blink");
+      eyeBottom.classList.remove("blink");
+      setTimeout(() => blinkThenWake(blinksLeft - 1), BLINK_GAP_MS);
+    }, BLINK_OPEN_MS);
+  }
+  blinkThenWake(BLINK_COUNT);
+}
+
+// ensures the eyelids end up open+done immediately, no blink flourish —
+// used only as a fallback (see exitSeatFocus) for someone who presses
+// WASD/Escape straight off the black menu without ever clicking "get up"
+function ensureEyesOpen() {
+  const eyeTop = document.getElementById("eyelid-top");
+  const eyeBottom = document.getElementById("eyelid-bottom");
+  if (eyeTop.classList.contains("open")) return;
+  eyeTop.classList.add("slow-open", "open", "done");
+  eyeBottom.classList.add("slow-open", "open", "done");
   document.getElementById("hint-bar").classList.add("show");
+}
+
+document.getElementById("get-up-btn").addEventListener("click", () => {
+  document.getElementById("intro-overlay").classList.add("hidden");
+  openEyesReveal();
+});
+
+// "flat portfolio" isn't built yet — just a placeholder note for now, the
+// menu stays up (still on the black screen) so "get up" is still available.
+document.getElementById("flat-portfolio-btn").addEventListener("click", () => {
+  document.getElementById("menu-note").classList.remove("hidden");
 });
 
 // ---------------------------------------------------------------- resize
@@ -1505,9 +1751,25 @@ const moveKeys = { w: false, a: false, s: false, d: false };
 const MOVE_SPEED = 1.8; // meters/second, roughly a walking pace
 
 window.addEventListener("keydown", (e) => {
-  if (!lightbox.classList.contains("hidden") || viewState !== "free") return; // don't walk while viewing a piece
+  if (!lightbox.classList.contains("hidden")) return; // don't walk while viewing a piece
   const k = e.key.toLowerCase();
-  if (k in moveKeys) moveKeys[k] = true;
+  if (!(k in moveKeys)) return;
+
+  // pressing a movement key while sitting in the chair stands you up and
+  // straight into free-roam, continuing in whichever direction you
+  // pressed — this is also how the seated start view breaks out into WASD,
+  // since that's entered through this same seat-focus system.
+  // (Safe to set moveKeys here even mid-tween: the animate loop only reads
+  // it once viewState is back to "free", which is exactly when the
+  // stand-up tween finishes.)
+  if (viewState === "focused" && focusedKind === "seat") {
+    exitSeatFocus();
+    moveKeys[k] = true;
+    return;
+  }
+
+  if (viewState !== "free") return;
+  moveKeys[k] = true;
 });
 window.addEventListener("keyup", (e) => {
   const k = e.key.toLowerCase();
@@ -1629,14 +1891,12 @@ function animate() {
   // also eases up to a slightly bigger scale so it reads as "pulled forward"
   if (modelRackShirts.length) {
     rackSlideOffset += (rackSlideTarget - rackSlideOffset) * 0.08;
-    modelRackShirts.forEach((entry, i) => {
-      // parent's world scale, not the group's own — see setVinylRise for
-      // why: these shirt groups can carry their own baked-in scale too
-      const worldScale = new THREE.Vector3();
-      (entry.group.parent || entry.group).getWorldScale(worldScale);
-      const localDelta = rackSlideOffset / (worldScale[rackAxisKey] || 1);
-      entry.group.position[rackAxisKey] = entry.restLocalPos[rackAxisKey] + localDelta;
 
+    // pass 1: scale + rotation first, for every shirt. The selected one's
+    // silhouette along the rack axis depends on both (it grows AND turns to
+    // face the camera), so its real current width has to be known before
+    // pass 2 can figure out how far neighbors need to clear out of its way.
+    modelRackShirts.forEach((entry, i) => {
       const isSelected = i === selectedRackIndex;
       const isHovered = entry.group.userData.rackHovered && viewState === "free";
       const targetFactor = isSelected ? RACK_SELECTED_SCALE : isHovered ? 1.06 : 1;
@@ -1653,6 +1913,49 @@ function animate() {
         entry.rotBlend += (rotTarget - entry.rotBlend) * RACK_ROT_RATE;
         entry.group.quaternion.slerpQuaternions(entry.baseQuat, entry.targetQuat, entry.rotBlend);
       }
+    });
+
+    // measure the selected shirt's ACTUAL current half-width along the rack
+    // axis (post scale+rotation, pre position) rather than guessing at a
+    // fraction of the rack's spacing — a shirt turned to face the camera can
+    // be much wider along the rod than it is hanging flat, so a fixed nudge
+    // undershoots exactly like the collision in the screenshot.
+    let selectedHalfWidth = 0;
+    if (selectedRackIndex >= 0) {
+      const selectedEntry = modelRackShirts[selectedRackIndex];
+      selectedEntry.group.updateWorldMatrix(true, true);
+      const box = new THREE.Box3().setFromObject(selectedEntry.group);
+      selectedHalfWidth = (rackAxisKey === "x" ? box.max.x - box.min.x : box.max.z - box.min.z) / 2;
+    }
+
+    // pass 2: position everyone. Immediate neighbors clear exactly enough
+    // to not overlap the selected shirt's real measured width (plus a small
+    // margin); shirts one slot further out cascade a fraction of that same
+    // push so the whole rack fans out smoothly instead of a hard cutoff.
+    const NEIGHBOR_MARGIN = 0.03;
+    modelRackShirts.forEach((entry, i) => {
+      // parent's world scale, not the group's own — see setVinylRise for
+      // why: these shirt groups can carry their own baked-in scale too
+      const worldScale = new THREE.Vector3();
+      (entry.group.parent || entry.group).getWorldScale(worldScale);
+      const localDelta = rackSlideOffset / (worldScale[rackAxisKey] || 1);
+
+      let neighborPushTarget = 0;
+      if (selectedRackIndex >= 0 && i !== selectedRackIndex) {
+        const dist = Math.abs(i - selectedRackIndex);
+        const dir = i > selectedRackIndex ? 1 : -1;
+        const selectedEntry = modelRackShirts[selectedRackIndex];
+        const restGap = Math.abs(entry.axisValue - selectedEntry.axisValue);
+        const requiredGap = selectedHalfWidth + entry.restHalfWidth + NEIGHBOR_MARGIN;
+        const immediatePush = Math.max(0, requiredGap - restGap);
+        // dist 1 gets the full push; dist 2+ cascades a shrinking fraction
+        // of it so shirts further down the rod still make a little room
+        const falloff = dist === 1 ? 1 : Math.max(0, 1 - (dist - 1) * 0.5);
+        neighborPushTarget = dir * immediatePush * falloff;
+      }
+      entry.neighborPushBlend += (neighborPushTarget - entry.neighborPushBlend) * 0.08;
+      const localPush = entry.neighborPushBlend / (worldScale[rackAxisKey] || 1);
+      entry.group.position[rackAxisKey] = entry.restLocalPos[rackAxisKey] + localDelta + localPush;
     });
   }
 

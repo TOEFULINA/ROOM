@@ -28,7 +28,7 @@ html, body {
   position: fixed;
   inset: 0;
   z-index: 50;
-  background: #14101a;
+  background: #000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -37,63 +37,107 @@ html, body {
 #loading-screen.hidden { opacity: 0; pointer-events: none; }
 .loading-inner { text-align: center; }
 .loading-title {
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: 2.4rem;
-  letter-spacing: 0.02em;
-  color: #ffce6b;
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #f2ece2;
 }
 .loading-sub {
-  margin-top: 10px;
-  opacity: .6;
-  font-size: .9rem;
+  margin-top: 12px;
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  letter-spacing: .04em;
+  opacity: .5;
+  font-size: .8rem;
 }
 
-/* ---------- intro overlay ---------- */
+/* ---------- intro overlay (start menu) ---------- */
 #intro-overlay {
   position: fixed;
   inset: 0;
-  z-index: 40;
-  background: radial-gradient(ellipse at center, rgba(20,16,26,0.55) 0%, rgba(10,8,13,0.85) 100%);
+  z-index: 45;
+  background: transparent;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  transition: opacity .5s ease, visibility .5s ease;
+  gap: 40px;
+  transition: opacity .4s ease, visibility .4s ease;
 }
 #intro-overlay.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
-.intro-card {
-  max-width: 420px;
-  padding: 32px 30px;
-  background: rgba(24, 19, 28, 0.75);
-  border: 1px solid rgba(255,206,107,0.25);
-  border-radius: 18px;
-  backdrop-filter: blur(6px);
+
+.menu-question {
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #f2ece2;
   text-align: center;
+  padding: 0 24px;
 }
-.intro-card h1 {
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: 1.8rem;
-  margin: 0 0 12px;
-  color: #ffce6b;
+
+.menu-options {
+  display: flex;
+  gap: 52px;
 }
-.intro-card p {
-  font-size: .95rem;
-  line-height: 1.5;
-  opacity: .85;
-  margin: 0 0 22px;
-}
-#enter-btn {
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: 1rem;
-  padding: 12px 26px;
-  border-radius: 999px;
-  border: none;
-  background: #ffce6b;
-  color: #201607;
-  cursor: pointer;
+
+.menu-option {
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  font-size: .9rem;
   font-weight: 600;
-  transition: transform .15s ease, background .15s ease;
+  background: none;
+  border: none;
+  border-bottom: 1px solid transparent;
+  color: #f2ece2;
+  opacity: .7;
+  cursor: pointer;
+  padding: 6px 2px;
+  transition: opacity .15s ease, border-color .15s ease;
 }
-#enter-btn:hover { transform: translateY(-2px); background: #ffd989; }
+.menu-option:hover { opacity: 1; border-bottom-color: #ffce6b; }
+
+.menu-note {
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-size: .78rem;
+  letter-spacing: .04em;
+  color: #f2ece2;
+  opacity: .5;
+  transition: opacity .3s ease;
+}
+.menu-note.hidden { opacity: 0; }
+
+/* ---------- eyelids ----------
+   Two solid black planes that fully cover the screen (meeting edge to
+   edge). The camera snaps into the chair while they're still shut, and the
+   "flat portfolio" / "get up" menu comes up right on top of this same
+   black screen. Only once "get up" is clicked do they blink a few times (a
+   quick partial parting via .blink, using this fast default transition)
+   before the real reveal — at which point .slow-open swaps in the long
+   cinematic transition below and .open takes them all the way, uncovering
+   the seated view underneath. */
+#eyelid-top, #eyelid-bottom {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 50vh;
+  background: #000;
+  z-index: 40;
+  transition: transform 0.22s ease;
+}
+#eyelid-top.slow-open, #eyelid-bottom.slow-open {
+  transition: transform 1.2s cubic-bezier(0.65, 0, 0.35, 1);
+}
+#eyelid-top { top: 0; transform: translateY(0); }
+#eyelid-bottom { bottom: 0; transform: translateY(0); }
+#eyelid-top.blink { transform: translateY(-22%); }
+#eyelid-bottom.blink { transform: translateY(22%); }
+#eyelid-top.open { transform: translateY(-100%); }
+#eyelid-bottom.open { transform: translateY(100%); }
+#eyelid-top.done, #eyelid-bottom.done { pointer-events: none; }
 
 /* ---------- hint bar ---------- */
 #hint-bar {

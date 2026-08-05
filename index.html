@@ -10,22 +10,22 @@
 
   <div id="loading-screen">
     <div class="loading-inner">
-      <div class="loading-title">the room</div>
-      <div class="loading-sub">loading your stuff off the floor...</div>
+      <div class="loading-title">loading</div>
+      <div class="loading-sub"></div>
     </div>
   </div>
 
-  <div id="intro-overlay">
-    <div class="intro-card">
-      <h1>welcome in</h1>
-      <p>this is my room. WASD to walk around, click and drag to look
-      around. the glowing bits are clickable — records, closet
-      merch, posters, the desk, the phone, the paper stack — click one and
-      the camera zooms right in on it (click anywhere, arrow keys, or Esc
-      to step back).</p>
-      <button id="enter-btn">step inside</button>
+  <div id="intro-overlay" class="hidden">
+    <div class="menu-question">what do you want to do?</div>
+    <div class="menu-options">
+      <button id="flat-portfolio-btn" class="menu-option">flat portfolio</button>
+      <button id="get-up-btn" class="menu-option">wake up</button>
     </div>
+    <div id="menu-note" class="menu-note hidden">flat portfolio's coming soon — check back later.</div>
   </div>
+
+  <div id="eyelid-top"></div>
+  <div id="eyelid-bottom"></div>
 
   <div id="hint-bar">WASD to walk · drag to look around · click glowing items to zoom in</div>
 

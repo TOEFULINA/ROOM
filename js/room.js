@@ -40,11 +40,11 @@ export const CAMERA_START = {
   // starting eye position: the open rug/chair floor, clear of the ladder and bed
   eyeXFrac: 0.8,
   eyeZFrac: 0.2,
-  eyeYFrac: 0.42, // nudged up again from 0.36 — taller standing height
+  eyeYFrac: 0.49, // nudged down slightly from 0.52
   // looking back toward the center/back of the room
   targetXFrac: 0.45,
   targetZFrac: 0.55,
-  targetYFrac: 0.42,
+  targetYFrac: 0.49,
 };
 
 // Tried lining up a visible ceiling-light fixture with the baked glow spot
