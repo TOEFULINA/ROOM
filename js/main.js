@@ -867,7 +867,6 @@ function activateHover(obj) {
   if (!obj) return;
   if (obj.userData.kind === "vinylModel") {
     setActiveVinyl(obj);
-    showOneShotSubtitle("vinyl-hover", "These are the cover arts I've made!", 2900);
   } else if (obj.userData.kind === "groupModel") {
     setHoverScale(modelProps[obj.userData.index]?.group, 1.06);
   } else if (obj.userData.kind === "seatModel") {
@@ -953,6 +952,7 @@ canvas.addEventListener("pointerup", (e) => {
       try {
         if (obj.userData.kind === "vinylModel") {
           enterVinylFocus(obj.userData.index);
+          showOneShotSubtitle("vinyl-click", "These are the cover arts I've made!", 2900);
         } else if (obj.userData.kind === "groupModel") {
           enterPropFocus(obj.userData.index);
         } else if (obj.userData.kind === "seatModel") {
@@ -1855,7 +1855,9 @@ function showStandUpSubtitle() {
 
   const LINE1_MS = 1800; // short — it's just "Nice."
   const LINE2_MS = 3200;
+  const LINE3_MS = 3600;
   const GAP_MS = 350;
+  const LONG_GAP_MS = 2500; // "a few seconds" pause before the 3rd line
 
   function showLine(rest, delay) {
     setTimeout(() => {
@@ -1867,10 +1869,18 @@ function showStandUpSubtitle() {
     setTimeout(() => el.classList.remove("show"), delay);
   }
 
-  showLine("Nice.", 150);
-  hideLine(150 + LINE1_MS);
-  showLine("Sorry about the lag give it a second. I'm not from here.", 150 + LINE1_MS + GAP_MS);
-  hideLine(150 + LINE1_MS + GAP_MS + LINE2_MS);
+  let t = 150;
+  showLine("Nice.", t);
+  t += LINE1_MS;
+  hideLine(t);
+  t += GAP_MS;
+  showLine("Sorry about the lag give it a second. I'm not from here.", t);
+  t += LINE2_MS;
+  hideLine(t);
+  t += LONG_GAP_MS;
+  showLine("I'd come down and say hi, but unfortunately i am tethered to this polygonal form. Sry!", t);
+  t += LINE3_MS;
+  hideLine(t);
 }
 
 // Generic one-shot subtitle — reuses #wake-subtitle, fires a given line

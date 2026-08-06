@@ -18,6 +18,7 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  overscroll-behavior: none;
   background: #0d0b10;
   font-family: 'Archivo', sans-serif;
   color: #f2ece2;
@@ -29,6 +30,12 @@ html, body {
   display: block;
   outline: none;
   cursor: grab;
+  /* Without this, a tap/drag on the canvas can get read by the browser as
+     a pull-to-refresh or pinch-zoom gesture instead of our own click/drag
+     handling — on mobile that was reloading the whole page the instant you
+     tapped a canvas. The mobile control buttons already had this; the main
+     scene canvas itself never did. */
+  touch-action: none;
 }
 #scene:active { cursor: grabbing; }
 #scene.hovering { cursor: pointer; }
@@ -183,12 +190,13 @@ html, body {
    just smaller and narrower so long lines wrap instead of overflowing. */
 @media (max-width: 700px) {
   #wake-subtitle {
-    /* WASD d-pad sits bottom:18px and is ~178px tall (3x54px cells + gaps)
-       — clearing above it with real margin instead of the desktop 12%,
-       which would sit right on top of it on most phone screen heights. */
-    bottom: 216px;
-    font-size: 1.05rem;
-    max-width: 88vw;
+    /* Sits low, underneath the (now smaller/raised) WASD d-pad — see
+       #mobile-controls below, which now floats at bottom:90px instead of
+       sitting flush against the screen edge, leaving this room. Smaller
+       font so even the longer lines wrap to two lines instead of three. */
+    bottom: 16px;
+    font-size: 0.92rem;
+    max-width: 90vw;
     padding: 0 10px;
   }
 }
@@ -202,12 +210,14 @@ html, body {
 #mobile-controls {
   position: fixed;
   left: 18px;
-  bottom: 18px;
+  /* raised off the very bottom edge (was 18px) so #wake-subtitle has room
+     to sit underneath it, closer to the true bottom of the screen */
+  bottom: 90px;
   z-index: 20;
   display: none;
-  grid-template-columns: repeat(3, 54px);
-  grid-template-rows: repeat(3, 54px);
-  gap: 8px;
+  grid-template-columns: repeat(3, 42px);
+  grid-template-rows: repeat(3, 42px);
+  gap: 6px;
   opacity: 0;
   transition: opacity .6s ease 1s;
   pointer-events: none;
@@ -223,9 +233,9 @@ html, body {
   justify-content: center;
   background: rgba(10,8,13,0.55);
   border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 12px;
+  border-radius: 10px;
   color: #f2ece2;
-  font-size: 1.1rem;
+  font-size: 0.9rem;
   line-height: 1;
   touch-action: none;
   -webkit-user-select: none;
@@ -244,7 +254,10 @@ html, body {
 #mobile-cycle-controls {
   position: fixed;
   right: 18px;
-  bottom: 18px;
+  /* matches #mobile-controls' new raised bottom offset, so both button
+     clusters sit at the same height and #wake-subtitle has clear room
+     below both of them */
+  bottom: 90px;
   z-index: 20;
   display: none;
   gap: 14px;
