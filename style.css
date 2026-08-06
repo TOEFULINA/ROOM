@@ -177,6 +177,19 @@ html, body {
 #wake-subtitle.show { opacity: 1; }
 #wake-subtitle .wake-name { color: #9a9a9a; }
 
+/* Every subtitle line (wake-up, stand-up, posters, vinyl, shirts) renders
+   through this one element/rule, so this single breakpoint keeps them all
+   at the exact same scaled-down size on phones — same timing as desktop,
+   just smaller and narrower so long lines wrap instead of overflowing. */
+@media (max-width: 700px) {
+  #wake-subtitle {
+    bottom: 12%;
+    font-size: 1.05rem;
+    max-width: 88vw;
+    padding: 0 10px;
+  }
+}
+
 /* ---------- on-screen mobile move buttons ---------- */
 /* Hidden by default (and on any device with a real mouse/trackpad — the
    "hover: none, pointer: coarse" pair below is the standard way to detect
