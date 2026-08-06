@@ -947,6 +947,7 @@ canvas.addEventListener("pointerup", (e) => {
       setPointerFromEvent(e);
       const obj = pickIntersect();
       if (obj && obj.userData.kind === "canvasSwatch") {
+        activePosterCanvasIndex = obj.userData.index;
         stepCanvasSwatchDesign(obj.userData.index, 1);
         pointerDownPos = null;
         return;
@@ -1413,9 +1414,20 @@ function computeScreenFocusTransform(mesh) {
   return { pos, target: center, fov };
 }
 
+// Which canvas the mobile prev/next arrows act on while the poster wall is
+// focused — there's no hover state on touch to imply "which one," so this
+// just tracks whichever canvas was tapped most recently (see the
+// canvasSwatch branch in the pointerup handler), defaulting to the first.
+let activePosterCanvasIndex = 0;
+
 function enterPropFocus(index) {
   const entry = modelProps[index];
   if (!entry || viewState !== "free") return;
+
+  if (entry.isPosterWall) {
+    activePosterCanvasIndex = 0;
+    setMobileCycleControlsVisible(true);
+  }
 
   preFocusCam = { pos: camera.position.clone(), target: controls.target.clone(), fov: camera.fov };
   // whatever's currently hovered (e.g. the exact canvas you just clicked)
@@ -1449,6 +1461,7 @@ function exitPropFocus() {
   if (!preFocusCam) return;
   viewState = "tweening";
   if (focusedPropIndex >= 0) setHoverScale(modelProps[focusedPropIndex]?.group, 1);
+  if (modelProps[focusedPropIndex]?.isPosterWall) setMobileCycleControlsVisible(false);
   focusedPropIndex = -1;
   focusedKind = null;
   setMobileMoveControlsVisible(true);
@@ -1754,10 +1767,14 @@ function stepFocus(dir) {
   if (focusedKind === "vinyl") stepVinylFocus(dir);
   else if (focusedKind === "prop") {
     const entry = modelProps[focusedPropIndex];
-    // arrow keys are a no-op on the poster wall — cycling now happens per
-    // canvas via direct clicks (see the pointerup "focused" handler), not
-    // a shared left/right step, so arrows shouldn't jump to the next prop
-    if (!entry || !entry.isPosterWall) stepPropFocus(dir);
+    // On the poster wall, arrows/mobile buttons step whichever canvas was
+    // tapped most recently (activePosterCanvasIndex, defaults to the first)
+    // instead of jumping to the next prop — direct clicks on a canvas still
+    // work exactly as before, this is just an additional way to trigger the
+    // same per-canvas cycle without having to land a tap on the 3D mesh
+    // itself (that raycasted tap is what's been unreliable on mobile).
+    if (entry?.isPosterWall) stepCanvasSwatchDesign(activePosterCanvasIndex, dir);
+    else stepPropFocus(dir);
   }
   // no stepSeatFocus — there's only one chair right now, arrow keys are a
   // no-op while sitting rather than cycling to nothing

@@ -20,14 +20,41 @@ import * as THREE from "three";
 // full-res-then-shrink pass) cuts that to a quarter — plenty sharp for a
 // wall poster viewed from normal camera distance in the 3D scene, never
 // inspected pixel-for-pixel.
+// Mobile screens are physically smaller AND are the exact devices that were
+// still crashing after the 1024 resize — dropping further to 768 on
+// coarse-pointer (touch) devices specifically cuts per-image memory another
+// ~44% on top of that, with zero visible quality loss on a phone screen.
+const isCoarsePointer = window.matchMedia?.("(pointer: coarse)").matches;
+const DECODE_SIZE = isCoarsePointer ? 768 : 1024;
+
 const loader = new THREE.ImageBitmapLoader();
 loader.setOptions({
   imageOrientation: "none", // matches TextureLoader's <img> orientation exactly — don't want a flip regression on top of everything else today
-  resizeWidth: 1024,
-  resizeHeight: 1024,
+  resizeWidth: DECODE_SIZE,
+  resizeHeight: DECODE_SIZE,
   resizeQuality: "medium",
 });
+
+// The resize fix above capped the cost of any ONE decode, but the cache
+// itself never forgot anything — browse all ~8 designs on all 4 canvases
+// in one session (plus every vinyl cover) and every single decoded bitmap
+// stayed pinned in memory forever, since nothing ever removed them from
+// this Map. That's what kept crashing mobile after "enough taps": it's
+// cumulative across the whole session, not any single image. Capping the
+// cache size and dropping the oldest entry once full fixes that — safe to
+// just drop the Map entry (not call .dispose()/.close()) because if that
+// texture is still someone's current material.map, it keeps rendering
+// fine; we're only forgetting how to instantly re-hand it out next time,
+// not destroying anything still on screen.
+const CACHE_LIMIT = 16;
 const cache = new Map();
+function cacheSet(key, texture) {
+  cache.set(key, texture);
+  if (cache.size > CACHE_LIMIT) {
+    const oldestKey = cache.keys().next().value;
+    cache.delete(oldestKey);
+  }
+}
 
 /**
  * Loads a real image if entry.image is set, otherwise generates a placeholder
@@ -75,7 +102,7 @@ export function getArtTexture(entry, kind = "cover") {
     texture.colorSpace = THREE.SRGBColorSpace;
   }
   texture.needsUpdate = true;
-  cache.set(key, texture);
+  cacheSet(key, texture);
   return texture;
 }
 
