@@ -183,7 +183,10 @@ html, body {
    just smaller and narrower so long lines wrap instead of overflowing. */
 @media (max-width: 700px) {
   #wake-subtitle {
-    bottom: 12%;
+    /* WASD d-pad sits bottom:18px and is ~178px tall (3x54px cells + gaps)
+       — clearing above it with real margin instead of the desktop 12%,
+       which would sit right on top of it on most phone screen heights. */
+    bottom: 216px;
     font-size: 1.05rem;
     max-width: 88vw;
     padding: 0 10px;
