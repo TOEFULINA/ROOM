@@ -867,6 +867,7 @@ function activateHover(obj) {
   if (!obj) return;
   if (obj.userData.kind === "vinylModel") {
     setActiveVinyl(obj);
+    showOneShotSubtitle("vinyl-hover", "These are the cover arts I've made!", 2900);
   } else if (obj.userData.kind === "groupModel") {
     setHoverScale(modelProps[obj.userData.index]?.group, 1.06);
   } else if (obj.userData.kind === "seatModel") {
@@ -958,8 +959,10 @@ canvas.addEventListener("pointerup", (e) => {
           enterSeatFocus(obj.userData.index);
         } else if (obj.userData.kind === "rackShirt") {
           enterRackFocus(obj.userData.index);
+          showOneShotSubtitle("shirts-click", "I'm gonna put merch designs up here. It's not ready yet though", 3600);
         } else if (obj.userData.kind === "canvasSwatch") {
           enterPropFocus(obj.userData.groupPropIndex);
+          showOneShotSubtitle("posters-click", "These are some posters I've made. Tap the canvas to switch through them!", 3400);
         } else {
           openLightbox(obj.userData.kind, obj.userData.index);
         }
@@ -1581,6 +1584,7 @@ function exitSeatFocus() {
     // this just resyncs mouse-look's own yaw/pitch bookkeeping to match, so
     // the next drag starts from the right place instead of jumping.
     syncLookAnglesFromTarget();
+    showStandUpSubtitle();
   });
 }
 
@@ -1806,6 +1810,86 @@ function startSeatedIntro() {
   document.getElementById("intro-overlay").classList.remove("hidden");
 }
 
+// Skyrim-style wake-up subtitles — two lines, shown once ever (not replayed
+// on later sit-downs), timed to start right as the eyelids begin their real
+// reveal. See #wake-subtitle in style.css for the look.
+let wakeSubtitlesShown = false;
+function showWakeSubtitles() {
+  if (wakeSubtitlesShown) return;
+  wakeSubtitlesShown = true;
+  const el = document.getElementById("wake-subtitle");
+  if (!el) return;
+
+  const LINE1_MS = 2900; // first line — trimmed down slightly from the second
+  const LINE2_MS = 3200;
+  const GAP_MS = 350; // beat of blank between the two lines
+
+  // "Toefu:" renders in the dimmer grey (see .wake-name in style.css),
+  // the actual dialogue after it stays pure white — same two-tone look
+  // as the Skyrim subtitle reference.
+  function showLine(rest, delay) {
+    setTimeout(() => {
+      el.innerHTML = `<span class="wake-name">Toefu:</span> ${rest}`;
+      el.classList.add("show");
+    }, delay);
+  }
+  function hideLine(delay) {
+    setTimeout(() => el.classList.remove("show"), delay);
+  }
+
+  showLine("Hey you. You're finally awake.", 300);
+  hideLine(300 + LINE1_MS);
+  showLine("Use WASD to get up and look around", 300 + LINE1_MS + GAP_MS);
+  hideLine(300 + LINE1_MS + GAP_MS + LINE2_MS);
+}
+
+// One-shot subtitle for the first successful stand-up (see exitSeatFocus
+// below) — same #wake-subtitle element/style, just a single short line
+// instead of the two-line wake-up sequence above.
+let standUpSubtitleShown = false;
+function showStandUpSubtitle() {
+  if (standUpSubtitleShown) return;
+  standUpSubtitleShown = true;
+  const el = document.getElementById("wake-subtitle");
+  if (!el) return;
+
+  const LINE1_MS = 1800; // short — it's just "Nice."
+  const LINE2_MS = 3200;
+  const GAP_MS = 350;
+
+  function showLine(rest, delay) {
+    setTimeout(() => {
+      el.innerHTML = `<span class="wake-name">Toefu:</span> ${rest}`;
+      el.classList.add("show");
+    }, delay);
+  }
+  function hideLine(delay) {
+    setTimeout(() => el.classList.remove("show"), delay);
+  }
+
+  showLine("Nice.", 150);
+  hideLine(150 + LINE1_MS);
+  showLine("Sorry about the lag give it a second. I'm not from here.", 150 + LINE1_MS + GAP_MS);
+  hideLine(150 + LINE1_MS + GAP_MS + LINE2_MS);
+}
+
+// Generic one-shot subtitle — reuses #wake-subtitle, fires a given line
+// exactly once per unique `key` for the life of the page, then never again.
+// This is the one to reach for when adding more moment-triggered subtitles
+// (poster wall, vinyl hover, shirts, etc.) — pass a unique key per moment.
+const shownOneShotSubtitles = new Set();
+function showOneShotSubtitle(key, rest, durationMs = 2600, delay = 150) {
+  if (shownOneShotSubtitles.has(key)) return;
+  shownOneShotSubtitles.add(key);
+  const el = document.getElementById("wake-subtitle");
+  if (!el) return;
+  setTimeout(() => {
+    el.innerHTML = `<span class="wake-name">Toefu:</span> ${rest}`;
+    el.classList.add("show");
+    setTimeout(() => el.classList.remove("show"), durationMs);
+  }, delay);
+}
+
 // parts the eyelids (a few quick partial-open/close blinks via .blink,
 // then the real slow reveal via .slow-open — see style.css) to uncover the
 // already-seated view. Safe to call more than once — bails out if the
@@ -1826,6 +1910,7 @@ function openEyesReveal() {
       eyeTop.classList.add("open");
       eyeBottom.classList.add("open");
       document.getElementById("mobile-controls").classList.add("show");
+      showWakeSubtitles();
       setTimeout(() => {
         eyeTop.classList.add("done");
         eyeBottom.classList.add("done");
@@ -1853,6 +1938,7 @@ function ensureEyesOpen() {
   eyeTop.classList.add("slow-open", "open", "done");
   eyeBottom.classList.add("slow-open", "open", "done");
   document.getElementById("mobile-controls").classList.add("show");
+  showWakeSubtitles();
 }
 
 document.getElementById("get-up-btn").addEventListener("click", () => {

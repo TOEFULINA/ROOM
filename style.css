@@ -1,4 +1,14 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Archivo:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Archivo:wght@400;600&family=Oswald:wght@500&display=swap');
+
+/* Real Futura Condensed Medium for the wake-up subtitle — Oswald above
+   stays in the font stack as a fallback in case this file ever goes
+   missing, but this is the actual font now. */
+@font-face {
+  font-family: 'Futura Condensed Medium';
+  src: url('fonts/FuturaCondensedMedium.otf') format('opentype');
+  font-weight: 500;
+  font-style: normal;
+}
 
 * { box-sizing: border-box; }
 
@@ -138,6 +148,34 @@ html, body {
 #eyelid-top.open { transform: translateY(-100%); }
 #eyelid-bottom.open { transform: translateY(100%); }
 #eyelid-top.done, #eyelid-bottom.done { pointer-events: none; }
+
+/* ---------- wake-up subtitle (Skyrim-style, grey Futura-Condensed-ish) ---------- */
+/* Oswald is the free stand-in for Futura Condensed Medium (that exact
+   commercial font isn't available on a web font CDN) — same geometric,
+   condensed, medium-weight look the reference style is going for. Shown
+   once, right as the eyelids finish opening (see showWakeSubtitles in
+   main.js), never replayed on repeat sit-downs. */
+#wake-subtitle {
+  position: fixed;
+  left: 50%;
+  bottom: 9%;
+  transform: translateX(-50%);
+  z-index: 42;
+  font-family: 'Futura Condensed Medium', 'Oswald', 'Helvetica Neue', Arial, sans-serif;
+  font-weight: 500;
+  font-size: 1.4rem;
+  letter-spacing: .015em;
+  color: #ffffff;
+  text-shadow: 0 2px 5px rgba(0,0,0,0.48), 0 0 14px rgba(0,0,0,0.33);
+  text-align: center;
+  opacity: 0;
+  transition: opacity .5s ease;
+  pointer-events: none;
+  max-width: 92vw;
+  padding: 0 16px;
+}
+#wake-subtitle.show { opacity: 1; }
+#wake-subtitle .wake-name { color: #9a9a9a; }
 
 /* ---------- on-screen mobile move buttons ---------- */
 /* Hidden by default (and on any device with a real mouse/trackpad — the
