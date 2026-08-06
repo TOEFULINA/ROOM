@@ -1245,6 +1245,7 @@ function enterVinylFocus(index) {
   focusedVinylIndex = index;
   focusedKind = "vinyl";
   setMobileCycleControlsVisible(true);
+  setMobileMoveControlsVisible(false);
   controls.enabled = false;
   moveKeys.w = moveKeys.a = moveKeys.s = moveKeys.d = false;
   canvas.classList.remove("hovering");
@@ -1265,6 +1266,7 @@ function exitVinylFocus() {
   focusedVinylIndex = -1;
   focusedKind = null;
   setMobileCycleControlsVisible(false);
+  setMobileMoveControlsVisible(true);
 
   const { pos, target, fov } = preFocusCam;
   startCameraTween(pos, target, fov, FOCUS_DURATION, () => {
@@ -1411,6 +1413,7 @@ function enterPropFocus(index) {
   hovered = null;
   focusedPropIndex = index;
   focusedKind = "prop";
+  setMobileMoveControlsVisible(false);
   controls.enabled = false;
   moveKeys.w = moveKeys.a = moveKeys.s = moveKeys.d = false;
   canvas.classList.remove("hovering");
@@ -1431,6 +1434,7 @@ function exitPropFocus() {
   if (focusedPropIndex >= 0) setHoverScale(modelProps[focusedPropIndex]?.group, 1);
   focusedPropIndex = -1;
   focusedKind = null;
+  setMobileMoveControlsVisible(true);
 
   const { pos, target, fov } = preFocusCam;
   startCameraTween(pos, target, fov, FOCUS_DURATION, () => {
@@ -1534,6 +1538,7 @@ function enterSeatFocus(index) {
   setHoverScale(entry.group, 1);
   focusedSeatIndex = index;
   focusedKind = "seat";
+  setMobileMoveControlsVisible(false);
   controls.enabled = false;
   moveKeys.w = moveKeys.a = moveKeys.s = moveKeys.d = false;
   canvas.classList.remove("hovering");
@@ -1554,6 +1559,7 @@ function exitSeatFocus() {
   viewState = "tweening";
   focusedSeatIndex = -1;
   focusedKind = null;
+  setMobileMoveControlsVisible(true);
 
   // if the black-screen menu (see startSeatedIntro / get-up-btn below) is
   // still up, clear it — covers standing up via WASD/Escape before ever
@@ -1677,6 +1683,7 @@ function enterRackFocus(index) {
     canvas.classList.remove("hovering");
     focusedKind = "rack";
     setMobileCycleControlsVisible(true);
+    setMobileMoveControlsVisible(false);
   }
 
   selectedRackIndex = index;
@@ -1697,6 +1704,7 @@ function exitRackFocus() {
   rackSlideTarget = 0;
   focusedKind = null;
   setMobileCycleControlsVisible(false);
+  setMobileMoveControlsVisible(true);
 
   const { pos, target, fov } = preFocusCam;
   startCameraTween(pos, target, fov, FOCUS_DURATION, () => {
@@ -1954,6 +1962,15 @@ Object.entries(MOBILE_MOVE_BUTTON_KEYS).forEach(([id, key]) => {
 const mobileCycleControls = document.getElementById("mobile-cycle-controls");
 function setMobileCycleControlsVisible(visible) {
   if (mobileCycleControls) mobileCycleControls.classList.toggle("show", visible);
+}
+
+// The WASD d-pad only makes sense while actually free-roaming — hidden the
+// instant any camera-focus mode kicks in (vinyl, props/canvases, seat,
+// rack) and brought back once you're back in walkable free-roam, mirroring
+// setMobileCycleControlsVisible above.
+const mobileMoveControls = document.getElementById("mobile-controls");
+function setMobileMoveControlsVisible(visible) {
+  if (mobileMoveControls) mobileMoveControls.classList.toggle("show", visible);
 }
 document.getElementById("mc-cycle-prev")?.addEventListener("pointerdown", (e) => {
   e.preventDefault();

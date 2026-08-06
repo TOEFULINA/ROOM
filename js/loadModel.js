@@ -1,20 +1,16 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 
 // Path to your real room model. Drop a new .glb here (same filename) to swap it out.
 export const MODEL_PATH = "models/room.glb";
 
-// GitHub hard-rejects any single file over 100MB. room.glb kept creeping back
-// over that line as the self-portrait/books/pegboard/etc. content grew, so
-// the handful of objects that were disproportionately heavy for what they
-// are (a desk phone prop and a couple of decorative ladybugs ended up over
-// 40MB combined, plus the "CLOSET ITEMS- merch" group — which turned out to
-// also be the shared parent of the rack shirts and the shoe, not just merch)
-// were split into this second file. It's loaded alongside the main one and
-// merged into the same model group below, BEFORE main.js ever gets to wire
-// up any interactivity — so nothing about how the room behaves changes,
-// this is purely a "which file the bytes came from" split.
-export const EXTRAS_MODEL_PATH = "models/room-extras.glb";
+// Used to ship as two files (room.glb + room-extras.glb) because GitHub
+// hard-rejects any single file over 100MB, and the uncompressed geometry
+// alone was pushing past that. Draco-compressing the geometry (see
+// DRACOLoader below) shrank things enough that it's back to one file again —
+// nothing about how the room behaves changed, this was purely a "how many
+// files the bytes come from" split.
 
 // The fake-outside-the-window backdrop (see WINDOW_BACKDROP_MESH_PATTERN in
 // main.js) sits deliberately OUTSIDE the room's real footprint — that's the
@@ -25,7 +21,15 @@ export const EXTRAS_MODEL_PATH = "models/room-extras.glb";
 // landing inside a wall and the camera reading "too short" right after the
 // backdrop was added. Excluded here so the room's own footprint stays the
 // actual room's footprint regardless of how far out the backdrop reaches.
-const ROOM_BOUNDS_EXCLUDE_PATTERN = /^WindowBackdrop/i;
+//
+// "Plane" (exact name, from the Draco re-export) is a stray leftover helper
+// object — no baked material, sits well outside the real room extents, and
+// blew the measured room height from ~2.15m up to ~3.24m, which is what was
+// causing the standing eye-height to read short and the chair's stand-up
+// camera to end up clipped near the loft bed (both derive their position as
+// a FRACTION of this box, so an inflated box throws every fraction off).
+// Excluded the same way as the window backdrop, for the same reason.
+const ROOM_BOUNDS_EXCLUDE_PATTERN = /^WindowBackdrop|^Plane$/i;
 
 /**
  * Loads the room .glb, sets up shadows on every mesh inside it, and reports
@@ -35,49 +39,29 @@ const ROOM_BOUNDS_EXCLUDE_PATTERN = /^WindowBackdrop/i;
 export function loadRoomModel(onProgress) {
   const loader = new GLTFLoader();
 
-  // both files' progress is tracked separately and combined into one
-  // overall fraction below — the loading screen shouldn't jump backwards
-  // or stall just because one file happens to be smaller than the other.
-  // Some servers (GitHub Pages' CDN included) don't always send a
-  // Content-Length for these, so a progress event's evt.total can come
-  // back 0/undefined for one file while the other reports normally —
-  // dividing loaded-so-far by an incomplete total is what caused the
-  // percentage to read over 100%. Clamping here keeps the display sane
-  // either way; it doesn't affect whether the actual load succeeds.
-  const progressState = { main: { loaded: 0, total: 0 }, extras: { loaded: 0, total: 0 } };
-  function reportProgress() {
-    if (!onProgress) return;
-    const totalLoaded = progressState.main.loaded + progressState.extras.loaded;
-    const totalBytes = progressState.main.total + progressState.extras.total;
-    if (totalBytes) onProgress(Math.min(1, totalLoaded / totalBytes));
-  }
-  function loadGltf(path, key) {
-    return new Promise((resolve, reject) => {
-      loader.load(
-        path,
-        resolve,
-        (evt) => {
-          progressState[key].loaded = evt.loaded;
-          if (evt.total) progressState[key].total = evt.total;
-          reportProgress();
-        },
-        reject
-      );
-    });
-  }
+  // Only kicks in for meshes that actually contain Draco-compressed geometry
+  // (KHR_draco_mesh_compression) — harmless to leave wired up regardless.
+  // Decoder files are loaded from Google's official CDN, not bundled here.
+  const dracoLoader = new DRACOLoader();
+  dracoLoader.setDecoderPath("https://www.gstatic.com/draco/versioned/decoders/1.5.6/");
+  loader.setDRACOLoader(dracoLoader);
 
-  return Promise.all([loadGltf(MODEL_PATH, "main"), loadGltf(EXTRAS_MODEL_PATH, "extras")]).then(
-    ([gltfMain, gltfExtras]) => {
+  return new Promise((resolve, reject) => {
+    loader.load(
+      MODEL_PATH,
+      (gltfMain) => resolve(finishLoad(gltfMain)),
+      (evt) => {
+        // Some servers (GitHub Pages' CDN included) don't always send a
+        // Content-Length, so evt.total can come back 0/undefined — guard
+        // against dividing by that instead of showing a broken percentage.
+        if (onProgress && evt.total) onProgress(Math.min(1, evt.loaded / evt.total));
+      },
+      reject
+    );
+  });
+
+  function finishLoad(gltfMain) {
       const model = gltfMain.scene;
-      // merge the extras scene's top-level children straight into the main
-      // model, BEFORE anything below (shadow setup, box computation, or any
-      // of main.js's later interactivity wiring) runs — from this point on
-      // it's just "the model," regardless of which file a given mesh
-      // actually came from
-      const extrasScene = gltfExtras.scene;
-      while (extrasScene.children.length) {
-        model.add(extrasScene.children[0]);
-      }
 
       model.traverse((obj) => {
         if (obj.isMesh) {
@@ -143,6 +127,5 @@ export function loadRoomModel(onProgress) {
       }
 
       return { model, box };
-    }
-  );
+  }
 }
