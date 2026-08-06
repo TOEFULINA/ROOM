@@ -1,6 +1,17 @@
 import * as THREE from "three";
 
-const loader = new THREE.TextureLoader();
+// ImageBitmapLoader instead of the usual TextureLoader — TextureLoader
+// decodes via a plain <img>, and that decode competes with the WebGL
+// canvas's own continuous rendering on the SAME main thread, which is why
+// a poster click could sit on the gray placeholder for a very long time
+// even though the file itself downloads fast (confirmed: fetching the same
+// URL directly in a fresh tab was instant, and the rest of the page stayed
+// responsive the whole time — classic main-thread decode contention, not a
+// network problem). ImageBitmapLoader decodes off-thread via
+// createImageBitmap() and hands three.js an already-decoded bitmap, so it
+// doesn't have to fight the render loop for a turn on the main thread.
+const loader = new THREE.ImageBitmapLoader();
+loader.setOptions({ imageOrientation: "none" }); // matches TextureLoader's <img> orientation exactly — don't want a flip regression on top of everything else today
 const cache = new Map();
 
 /**
@@ -13,18 +24,18 @@ export function getArtTexture(entry, kind = "cover") {
 
   let texture;
   if (entry.image) {
-    // TextureLoader.load() returns the Texture object immediately, but its
-    // .image stays empty until the network fetch + decode actually finish —
-    // an empty texture samples as solid BLACK in WebGL, which read as "the
-    // click did nothing" even though it's just normal async loading latency.
-    // A neutral gray placeholder here makes that brief gap look like it's
+    // .load() returns the Texture object immediately, but its .image stays
+    // empty until the fetch + off-thread decode actually finish — an empty
+    // texture samples as solid BLACK in WebGL, which read as "the click did
+    // nothing" even though it's just normal async loading latency. A
+    // neutral gray placeholder here makes that brief gap look like it's
     // doing something instead of looking broken.
     texture = new THREE.Texture(drawLoadingSwatch());
     texture.needsUpdate = true;
     loader.load(
       entry.image,
-      (loaded) => {
-        texture.image = loaded.image;
+      (bitmap) => {
+        texture.image = bitmap;
         texture.needsUpdate = true;
       },
       undefined,
