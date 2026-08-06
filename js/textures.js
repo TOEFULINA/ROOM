@@ -10,8 +10,23 @@ import * as THREE from "three";
 // network problem). ImageBitmapLoader decodes off-thread via
 // createImageBitmap() and hands three.js an already-decoded bitmap, so it
 // doesn't have to fight the render loop for a turn on the main thread.
+// Decoding at the full 2048x2048 source resolution was fine on desktop but
+// too heavy on mobile — each decode holds ~16MB of raw pixels in memory
+// before upload, and tapping through a few designs stacks up several of
+// those at once, which is exactly what was showing as "stuck gray, then a
+// forced page reload after enough taps" (classic mobile browser memory
+// pressure, not a network or logic bug). Resizing down at decode time
+// (browsers do this efficiently during JPEG decode, not as a separate
+// full-res-then-shrink pass) cuts that to a quarter — plenty sharp for a
+// wall poster viewed from normal camera distance in the 3D scene, never
+// inspected pixel-for-pixel.
 const loader = new THREE.ImageBitmapLoader();
-loader.setOptions({ imageOrientation: "none" }); // matches TextureLoader's <img> orientation exactly — don't want a flip regression on top of everything else today
+loader.setOptions({
+  imageOrientation: "none", // matches TextureLoader's <img> orientation exactly — don't want a flip regression on top of everything else today
+  resizeWidth: 1024,
+  resizeHeight: 1024,
+  resizeQuality: "medium",
+});
 const cache = new Map();
 
 /**
