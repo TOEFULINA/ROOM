@@ -791,6 +791,20 @@ loadRoomModel((progress) => {
       console.info(`interactivity: ${allInteractiveObjects.length} clickable mesh(es) total (${modelVinyls.length} vinyl, ${modelRackShirts.length} rack shirt, ${modelProps.length} other props, ${modelSeats.length} seat).`);
     });
 
+    // "slow the first few seconds, then fine" is the classic symptom of
+    // lazy GPU work: three.js doesn't actually compile a material's shader
+    // or upload its textures to the GPU until the FIRST frame that
+    // material is actually drawn. With 140+ materials in this room, that
+    // means the initial look-around was the thing triggering all of that
+    // compile/upload cost, spread across whichever frames happened to
+    // first see each object — hence the stutter fading as you look around
+    // and "use up" the backlog. Forcing it all up front here, while the
+    // loading screen is still covering the canvas, moves that one-time
+    // cost off the first few seconds of actual gameplay.
+    safeStep("precompile shaders / upload textures", () => {
+      renderer.compile(scene, camera);
+    });
+
     document.getElementById("loading-screen").classList.add("hidden");
     safeStep("seated intro", startSeatedIntro);
   })
