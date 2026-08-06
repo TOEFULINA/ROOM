@@ -65,33 +65,57 @@ export const VINYL_COVERS = [
   },
 ];
 
-// POSTER_SETS: alternate "looks" for the graphic-design poster wall. Set 0
-// is always whatever's already baked onto the canvases in the model itself
-// (not listed here) — these are EXTRA sets layered on top of that, cycled
-// through with the arrow keys once you've clicked into the poster wall.
+// CANVAS_DESIGNS: real design options for each canvas on the graphic-design
+// wall — clicking a canvas focuses just that one canvas, and arrow keys
+// cycle through ITS OWN list below (each canvas has its own independent
+// stack, not a shared "whole wall" set). Index 0 while browsing is always
+// whatever's already baked onto that canvas in the model itself (not listed
+// here); everything below is layered on top of that.
 //
-// Each set is an array of one entry per canvas, in left-to-right order
-// (matching however the canvases sit in the model). For each entry:
-//   1) leave "image: null"  -> a generated placeholder is used automatically
-//   2) set "image: 'images/posters/my-piece.jpg'" -> put a real image file
-//      in that folder and it'll be used instead.
-// If a set has fewer entries than there are canvases, it just repeats — so
-// you can add a single-image set and it'll show on every canvas.
-// Add as many sets as you want; arrow-key cycling picks them up automatically.
-export const POSTER_SETS = [
-  [
-    { title: "Poster Set 2 — A", image: null, accent: "#ff6b6b" },
-    { title: "Poster Set 2 — B", image: null, accent: "#5bc0be" },
-    { title: "Poster Set 2 — C", image: null, accent: "#ffce6b" },
-    { title: "Poster Set 2 — D", image: null, accent: "#c792ea" },
+// Keyed by the canvas mesh's exact name in models/room.glb. Each entry is
+// just { image: "images/posters/..." } — title/accent aren't used for these
+// (unlike CLOTHING), so they're omitted.
+export const CANVAS_DESIGNS = {
+  "Canvas_n3d": [
+    { image: "images/posters/canvas-0/1.jpg" },
+    { image: "images/posters/canvas-0/2.jpg" },
+    { image: "images/posters/canvas-0/3.jpg" },
+    { image: "images/posters/canvas-0/4.jpg" },
+    { image: "images/posters/canvas-0/5.jpg" },
+    { image: "images/posters/canvas-0/6.jpg" },
+    { image: "images/posters/canvas-0/7.jpg" },
   ],
-  [
-    { title: "Poster Set 3 — A", image: null, accent: "#8ecae6" },
-    { title: "Poster Set 3 — B", image: null, accent: "#ffb4a2" },
-    { title: "Poster Set 3 — C", image: null, accent: "#94d2bd" },
-    { title: "Poster Set 3 — D", image: null, accent: "#bb9af7" },
+  "Canvas 2_n3d": [
+    { image: "images/posters/canvas-2/1.jpg" },
+    { image: "images/posters/canvas-2/2.jpg" },
+    { image: "images/posters/canvas-2/3.jpg" },
+    { image: "images/posters/canvas-2/4.jpg" },
+    { image: "images/posters/canvas-2/5.jpg" },
+    { image: "images/posters/canvas-2/6.jpg" },
+    { image: "images/posters/canvas-2/7.jpg" },
+    { image: "images/posters/canvas-2/8.jpg" },
   ],
-];
+  "Canvas 3_n3d": [
+    { image: "images/posters/canvas-3/1.jpg" },
+    { image: "images/posters/canvas-3/2.jpg" },
+    { image: "images/posters/canvas-3/3.jpg" },
+    { image: "images/posters/canvas-3/4.jpg" },
+    { image: "images/posters/canvas-3/5.jpg" },
+    { image: "images/posters/canvas-3/6.jpg" },
+    { image: "images/posters/canvas-3/7.jpg" },
+    { image: "images/posters/canvas-3/8.jpg" },
+  ],
+  "Canvas 4_n3d": [
+    { image: "images/posters/canvas-4/1.jpg" },
+    { image: "images/posters/canvas-4/2.jpg" },
+    { image: "images/posters/canvas-4/3.jpg" },
+    { image: "images/posters/canvas-4/4.jpg" },
+    { image: "images/posters/canvas-4/5.jpg" },
+    { image: "images/posters/canvas-4/6.jpg" },
+    { image: "images/posters/canvas-4/7.jpg" },
+    { image: "images/posters/canvas-4/8.jpg" },
+  ],
+};
 
 export const CLOTHING = [
   {

@@ -34,6 +34,14 @@
     <button id="mc-d" class="mc-btn mc-d" aria-label="walk right">&#9654;</button>
   </div>
 
+  <!-- mobile-only prev/next for whatever's currently browsable (vinyl crate,
+       closet rack) — the touch equivalent of the ArrowLeft/ArrowRight keys,
+       only shown while one of those is actually focused (see main.js) -->
+  <div id="mobile-cycle-controls">
+    <button id="mc-cycle-prev" class="mc-cycle-btn" aria-label="previous">&#8249;</button>
+    <button id="mc-cycle-next" class="mc-cycle-btn" aria-label="next">&#8250;</button>
+  </div>
+
   <canvas id="scene"></canvas>
 
   <!-- lightbox for viewing portfolio pieces -->

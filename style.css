@@ -183,6 +183,44 @@ html, body {
 .mc-s { grid-column: 2; grid-row: 2; }
 .mc-d { grid-column: 3; grid-row: 2; }
 
+/* ---------- on-screen mobile prev/next (vinyl crate, closet rack) ---------- */
+/* Same touch-only gating as #mobile-controls above, but shown/hidden by JS
+   (via the .show class) rather than always-on — only makes sense while
+   you're actually focused on something browsable. */
+#mobile-cycle-controls {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 20;
+  display: none;
+  gap: 14px;
+  opacity: 0;
+  transition: opacity .25s ease;
+  pointer-events: none;
+  touch-action: none;
+}
+#mobile-cycle-controls.show { opacity: .85; pointer-events: auto; }
+@media (hover: none) and (pointer: coarse) {
+  #mobile-cycle-controls { display: flex; }
+}
+.mc-cycle-btn {
+  width: 54px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10,8,13,0.55);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 12px;
+  color: #f2ece2;
+  font-size: 1.8rem;
+  line-height: 1;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.mc-cycle-btn:active { background: rgba(255,206,107,0.3); }
+
 /* ---------- lightbox ---------- */
 #lightbox {
   position: fixed;

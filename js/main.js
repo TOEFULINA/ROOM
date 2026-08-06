@@ -3,7 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js";
 import { loadRoomModel } from "./loadModel.js";
 import { getArtCanvas, getArtTexture } from "./textures.js";
-import { CLOTHING, POSTER_SETS } from "./data.js";
+import { CLOTHING, CANVAS_DESIGNS } from "./data.js";
 import { applyBakedLook } from "./bakedLook.js";
 
 // ---------------------------------------------------------------- renderer
@@ -256,14 +256,14 @@ const SCREEN_MESH_PATTERNS = {
 };
 
 // the graphic design posters are several canvases under one group — clicking
-// any of them frames the WHOLE wall (so all canvases are visible at once),
-// and arrow keys cycle every canvas through POSTER_SETS (data.js) together,
-// same idea as the vinyl cover flip but for a whole board of images at once
+// any of them frames the WHOLE wall (one shared modelProps entry, flagged
+// isPosterWall so the click/step handlers can recognize it). Once that
+// whole-wall view is focused, clicking an individual canvas doesn't exit or
+// re-zoom — it just cycles THAT canvas to its next design from its own
+// CANVAS_DESIGNS (data.js) list, collage-style, leaving the other 3 exactly
+// as they were (see modelCanvasSwatches + the pointerup "focused" handler).
 const POSTER_GROUP_PATTERN = /^posters - graphic design$/i;
-let posterGroupRef = null; // the group itself, so stepFocus can tell "is this the poster wall?"
-let posterCanvases = []; // every mesh canvas inside the group
-const posterOriginalMaterials = new Map(); // canvas -> its original (baked) material, restored at set index 0
-let posterSetIndex = 0; // 0 = whatever's already baked in the model; 1+ = POSTER_SETS[index - 1]
+const modelCanvasSwatches = []; // { mesh, designs, designIndex, originalMap } — one per canvas, independent of the shared wall focus
 
 // the chair gets its own "sit down" camera snap instead of the generic
 // prop zoom (see computeSeatTransform) — camera goes to roughly seated eye
@@ -664,10 +664,12 @@ loadRoomModel((progress) => {
     });
 
     // the graphic design posters — several canvases under one wall group.
-    // Registered as ONE shared modelProps entry (whole-group pattern, same
-    // idea as WHOLE_GROUP_NAMES above) so clicking any canvas frames the
-    // whole wall; arrow keys then cycle every canvas through POSTER_SETS
-    // together via stepPosterSet (see stepFocus dispatcher below).
+    // ONE shared modelProps entry (flagged isPosterWall) frames the WHOLE
+    // wall on click, same as any other prop. Each canvas mesh ALSO gets its
+    // own "canvasSwatch" entry in modelCanvasSwatches — once the whole-wall
+    // view is focused, clicking an individual canvas cycles just that one
+    // (see the pointerup "focused" handler + stepCanvasSwatchDesign below)
+    // instead of re-zooming, so you can build a collage across all 4.
     safeStep("poster wiring", () => {
       let posterGroup = null;
       model.traverse((obj) => {
@@ -679,7 +681,7 @@ loadRoomModel((progress) => {
           if (child.isMesh) canvases.push(child);
         });
         if (canvases.length) {
-          const idx = modelProps.length;
+          const groupPropIndex = modelProps.length;
           // focusTarget: frame the box3 around just the canvas meshes, not
           // the whole group subtree — the group can include frame/backing
           // geometry or a hung ornament that sticks out further, which was
@@ -690,13 +692,27 @@ loadRoomModel((progress) => {
             group: posterGroup,
             focusTarget: canvases,
             focusFov: POSTER_FOCUS_FOV,
+            isPosterWall: true,
           });
-          canvases.forEach((canvas) => {
-            canvas.userData = { interactive: true, kind: "groupModel", index: idx };
-            posterOriginalMaterials.set(canvas, canvas.material);
+          canvases.forEach((canvasMesh) => {
+            const swatchIndex = modelCanvasSwatches.length;
+            modelCanvasSwatches.push({
+              mesh: canvasMesh,
+              designs: CANVAS_DESIGNS[rawName(canvasMesh)] || null,
+              designIndex: 0,
+              // the exact original baked texture — swapping designs only
+              // ever changes THIS one property on the mesh's real material,
+              // never the material instance and never the geometry's uv, so
+              // whatever alignment the bake already had is fully preserved
+              originalMap: canvasMesh.material.map,
+            });
+            canvasMesh.userData = {
+              interactive: true,
+              kind: "canvasSwatch",
+              index: swatchIndex,
+              groupPropIndex,
+            };
           });
-          posterGroupRef = posterGroup;
-          posterCanvases = canvases;
         } else {
           console.warn('poster wiring: "posters - graphic design" group found but it has no canvas meshes.');
         }
@@ -836,6 +852,13 @@ function deactivateHover(obj) {
     // over the same scale each frame would fight/flicker
     const entry = modelRackShirts[obj.userData.index];
     if (entry) entry.group.userData.rackHovered = false;
+  } else if (obj.userData.kind === "canvasSwatch") {
+    // these meshes use an extreme 999999x compensating scale (see the
+    // door/lathe comment elsewhere) to cancel out a parent's tiny scale —
+    // a small, deliberate bump here is fine, but this is exactly why
+    // "enter focus" must always reset whatever's hovered before losing
+    // track of it (see enterPropFocus) rather than leaving it stuck
+    setHoverScale(obj, 1);
   } else {
     setHoverScale(obj, 1);
   }
@@ -851,6 +874,11 @@ function activateHover(obj) {
   } else if (obj.userData.kind === "rackShirt") {
     const entry = modelRackShirts[obj.userData.index];
     if (entry) entry.group.userData.rackHovered = true;
+  } else if (obj.userData.kind === "canvasSwatch") {
+    // a subtler bump than the default 1.08 — these are big flat wall
+    // pieces, an 8% grow reads as janky at that size, and it's a much
+    // wider margin around whatever precision the 999999x scale needs
+    setHoverScale(obj, 1.015);
   } else {
     setHoverScale(obj, 1.08);
   }
@@ -859,10 +887,14 @@ function activateHover(obj) {
 canvas.addEventListener("pointermove", (e) => {
   if (pointerDownPos) {
     dragDistance += Math.abs(e.clientX - pointerDownPos.x) + Math.abs(e.clientY - pointerDownPos.y);
-    // stand-in-place mouse-look — see applyLookDelta above. Gated the same
-    // way hover already is (only while actually walking around free), so it
-    // can't fight a focus-view tween or a locked focused camera.
-    if (viewState === "free") applyLookDelta(e.movementX, e.movementY);
+    // stand-in-place mouse-look — see applyLookDelta above. Free-roam gets
+    // it, and so does sitting in the chair (position stays put, only the
+    // view direction changes — WASD is what stands you up, see
+    // pressMoveKey). Every OTHER focused view (props, vinyl, rack) keeps
+    // the camera fully locked, so it can't fight a focus-view tween.
+    if (viewState === "free" || (viewState === "focused" && focusedKind === "seat")) {
+      applyLookDelta(e.movementX, e.movementY);
+    }
   }
   if (viewState !== "free") return; // no hover effects while zoomed in or mid-transition
   setPointerFromEvent(e);
@@ -893,6 +925,19 @@ canvas.addEventListener("pointerup", (e) => {
         return;
       }
     }
+    // while framing the whole poster wall, clicking one of the 4 canvases
+    // doesn't exit or re-zoom — it just cycles THAT canvas to its next
+    // design (collage-style), camera stays put so you can click through
+    // each canvas independently. Clicking anything else still exits.
+    if (focusedKind === "prop" && modelProps[focusedPropIndex]?.isPosterWall) {
+      setPointerFromEvent(e);
+      const obj = pickIntersect();
+      if (obj && obj.userData.kind === "canvasSwatch") {
+        stepCanvasSwatchDesign(obj.userData.index, 1);
+        pointerDownPos = null;
+        return;
+      }
+    }
     exitFocus();
     pointerDownPos = null;
     return;
@@ -913,6 +958,8 @@ canvas.addEventListener("pointerup", (e) => {
           enterSeatFocus(obj.userData.index);
         } else if (obj.userData.kind === "rackShirt") {
           enterRackFocus(obj.userData.index);
+        } else if (obj.userData.kind === "canvasSwatch") {
+          enterPropFocus(obj.userData.groupPropIndex);
         } else {
           openLightbox(obj.userData.kind, obj.userData.index);
         }
@@ -1111,16 +1158,24 @@ const POSTER_FOCUS_FOV = 40;
 // fit needs) but crops hard on a narrow/portrait phone screen, where the
 // horizontal fov is actually the tighter of the two — a poster/phone/
 // computer screen wider than it is tall got its edges cut off there.
-// Solving for BOTH the height-fit and width-fit distance and taking
-// whichever is larger (same trick the closet rack view already used)
-// fixes that regardless of the object's shape or the screen's aspect
-// ratio.
+//
+// The first fix for that backed the camera further away to fit the width
+// too (same trick the closet rack view uses) — but several of these props
+// (the desk computer especially) sit close to a wall, and a phone's much
+// narrower horizontal fov needed enough EXTRA distance to fit that it
+// pushed the camera clean through the wall and out of the room. Distance
+// is the wrong knob to turn here. Instead, distance is always computed
+// the same aspect-independent way this code used before that first fix
+// (so it can never move the camera any further than it already safely
+// did), and the FOV widens instead whenever a narrow screen would
+// otherwise crop the width — a little extra margin around the object
+// instead of a camera stuck outside the room.
 function computeThinAxis(size) {
   if (size.x <= size.y && size.x <= size.z) return "x";
   if (size.z <= size.x && size.z <= size.y) return "z";
   return "y";
 }
-function computeFramedDistance(size, thinAxis, fov, frameFraction) {
+function computeFramedView(size, thinAxis, baseFov, frameFraction) {
   // "thinAxis" is whichever local axis is the object's face normal (its
   // depth) — the other two box dimensions are what's actually visible.
   // World "up" (y) reads as screen-vertical unless y itself IS the thin
@@ -1134,11 +1189,21 @@ function computeFramedDistance(size, thinAxis, fov, frameFraction) {
     visibleHeight = size.y;
     visibleWidth = thinAxis === "x" ? size.z : size.x;
   }
-  const vFovRad = THREE.MathUtils.degToRad(fov);
-  const hFovRad = 2 * Math.atan(Math.tan(vFovRad / 2) * camera.aspect);
-  const distForHeight = visibleHeight / 2 / (Math.tan(vFovRad / 2) * frameFraction);
-  const distForWidth = visibleWidth / 2 / (Math.tan(hFovRad / 2) * frameFraction);
-  return Math.max(distForHeight, distForWidth);
+
+  const primary = Math.max(visibleHeight, visibleWidth);
+  const baseFovHalf = THREE.MathUtils.degToRad(baseFov) / 2;
+  const distance = primary / 2 / (Math.tan(baseFovHalf) * frameFraction);
+
+  // Would baseFov's implied horizontal fov actually fit visibleWidth at
+  // this distance? Always yes on a landscape screen; on a narrow/portrait
+  // one the horizontal fov can be tighter than the vertical one, so widen
+  // the fov (never the distance) enough to cover it.
+  const requiredHFovHalf = Math.atan(visibleWidth / 2 / (distance * frameFraction));
+  const requiredVFovHalfForWidth = Math.atan(Math.tan(requiredHFovHalf) / camera.aspect);
+  const finalFovHalf = Math.max(baseFovHalf, requiredVFovHalfForWidth);
+  const fov = THREE.MathUtils.radToDeg(finalFovHalf) * 2;
+
+  return { distance, fov };
 }
 
 function computeFocusTransform(mesh) {
@@ -1158,7 +1223,7 @@ function computeFocusTransform(mesh) {
   const targetLocalY = mesh.userData.riseTargetY ?? mesh.position.y;
   center.y += (targetLocalY - mesh.position.y) * (worldScale.y || 1);
 
-  const distance = computeFramedDistance(size, computeThinAxis(size), FOCUS_FOV, FOCUS_FRAME_FRACTION);
+  const { distance, fov } = computeFramedView(size, computeThinAxis(size), FOCUS_FOV, FOCUS_FRAME_FRACTION);
 
   // camera sits directly in front of the cover's face (see
   // getSignedCoverAxis) rather than riding whatever angle it happened to
@@ -1167,7 +1232,7 @@ function computeFocusTransform(mesh) {
   const worldQuat = mesh.getWorldQuaternion(new THREE.Quaternion());
   const worldNormal = axis.clone().applyQuaternion(worldQuat).normalize();
   const pos = center.clone().addScaledVector(worldNormal, distance);
-  return { pos, target: center };
+  return { pos, target: center, fov };
 }
 
 function enterVinylFocus(index) {
@@ -1179,14 +1244,15 @@ function enterVinylFocus(index) {
   setSelectedVinyl(entry.mesh);
   focusedVinylIndex = index;
   focusedKind = "vinyl";
+  setMobileCycleControlsVisible(true);
   controls.enabled = false;
   moveKeys.w = moveKeys.a = moveKeys.s = moveKeys.d = false;
   canvas.classList.remove("hovering");
   viewState = "tweening";
   bedframeMeshes.forEach((m) => (m.visible = false));
 
-  const { pos, target } = computeFocusTransform(entry.mesh);
-  startCameraTween(pos, target, FOCUS_FOV, FOCUS_DURATION, () => {
+  const { pos, target, fov } = computeFocusTransform(entry.mesh);
+  startCameraTween(pos, target, fov, FOCUS_DURATION, () => {
     viewState = "focused";
   });
 }
@@ -1198,6 +1264,7 @@ function exitVinylFocus() {
   hovered = null;
   focusedVinylIndex = -1;
   focusedKind = null;
+  setMobileCycleControlsVisible(false);
 
   const { pos, target, fov } = preFocusCam;
   startCameraTween(pos, target, fov, FOCUS_DURATION, () => {
@@ -1221,8 +1288,8 @@ function stepVinylFocus(dir) {
   focusedVinylIndex = nextIndex;
   viewState = "tweening";
 
-  const { pos, target } = computeFocusTransform(entry.mesh);
-  startCameraTween(pos, target, FOCUS_FOV, 0.9, () => {
+  const { pos, target, fov } = computeFocusTransform(entry.mesh);
+  startCameraTween(pos, target, fov, 0.9, () => {
     viewState = "focused";
   });
 }
@@ -1263,15 +1330,15 @@ function computePropFrontAxis(cacheObj, viewerPos, boxTarget = cacheObj) {
   return axis;
 }
 
-function computePropFocusTransform(group, boxTarget = group, fov = FOCUS_FOV) {
+function computePropFocusTransform(group, boxTarget = group, baseFov = FOCUS_FOV) {
   group.updateMatrixWorld(true);
   const box = computeFocusBox(boxTarget);
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
-  const distance = computeFramedDistance(size, computeThinAxis(size), fov, FOCUS_FRAME_FRACTION);
+  const { distance, fov } = computeFramedView(size, computeThinAxis(size), baseFov, FOCUS_FRAME_FRACTION);
   const axis = computePropFrontAxis(group, camera.position, boxTarget);
   const pos = center.clone().addScaledVector(axis, distance);
-  return { pos, target: center };
+  return { pos, target: center, fov };
 }
 
 // Same "thin local axis = face normal" trick as the vinyl covers
@@ -1321,10 +1388,10 @@ function computeScreenFocusTransform(mesh) {
   const box = new THREE.Box3().setFromObject(mesh);
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
-  const distance = computeFramedDistance(size, computeThinAxis(size), FOCUS_FOV, FOCUS_FRAME_FRACTION);
+  const { distance, fov } = computeFramedView(size, computeThinAxis(size), FOCUS_FOV, FOCUS_FRAME_FRACTION);
   const axis = getMeshFrontAxis(mesh, camera.position);
   const pos = center.clone().addScaledVector(axis, distance);
-  return { pos, target: center };
+  return { pos, target: center, fov };
 }
 
 function enterPropFocus(index) {
@@ -1332,6 +1399,15 @@ function enterPropFocus(index) {
   if (!entry || viewState !== "free") return;
 
   preFocusCam = { pos: camera.position.clone(), target: controls.target.clone(), fov: camera.fov };
+  // whatever's currently hovered (e.g. the exact canvas you just clicked)
+  // needs its hover visual explicitly reset here — just nulling the
+  // tracking variable left it permanently scaled up at its hover size,
+  // since pointermove's hover system stops running the instant viewState
+  // leaves "free" a few lines down, so nothing else was ever going to
+  // reset it. For these canvas meshes specifically (999999x compensating
+  // scale, see the door/lathe comment elsewhere), even the 8% hover bump
+  // was enough to break that scale trick and render solid black.
+  deactivateHover(hovered);
   hovered = null;
   focusedPropIndex = index;
   focusedKind = "prop";
@@ -1340,10 +1416,10 @@ function enterPropFocus(index) {
   canvas.classList.remove("hovering");
   viewState = "tweening";
 
-  const fov = entry.focusFov || FOCUS_FOV;
-  const { pos, target } = entry.screenMesh
+  const baseFov = entry.focusFov || FOCUS_FOV;
+  const { pos, target, fov } = entry.screenMesh
     ? computeScreenFocusTransform(entry.screenMesh)
-    : computePropFocusTransform(entry.group, entry.focusTarget, fov);
+    : computePropFocusTransform(entry.group, entry.focusTarget, baseFov);
   startCameraTween(pos, target, fov, FOCUS_DURATION, () => {
     viewState = "focused";
   });
@@ -1375,41 +1451,42 @@ function stepPropFocus(dir) {
   viewState = "tweening";
 
   const entry = modelProps[nextIndex];
-  const fov = entry.focusFov || FOCUS_FOV;
-  const { pos, target } = entry.screenMesh
+  const baseFov = entry.focusFov || FOCUS_FOV;
+  const { pos, target, fov } = entry.screenMesh
     ? computeScreenFocusTransform(entry.screenMesh)
-    : computePropFocusTransform(entry.group, entry.focusTarget, fov);
+    : computePropFocusTransform(entry.group, entry.focusTarget, baseFov);
   startCameraTween(pos, target, fov, 0.9, () => {
     viewState = "focused";
   });
 }
 
-// ---------------------------------------------------------------- poster wall: texture-set cycling
-// Set 0 is always whatever's already baked onto the canvases in the model
-// (restored from posterOriginalMaterials). Sets 1+ come from POSTER_SETS
-// (data.js) — each canvas gets a fresh unlit MeshBasicMaterial built from
-// that set's texture (a generated placeholder canvas until real images are
-// dropped into data.js, same convention as CLOTHING/VINYL_COVERS).
-function setPosterSet(index) {
-  if (!posterCanvases.length) return;
-  const total = POSTER_SETS.length + 1;
-  posterSetIndex = ((index % total) + total) % total;
-  posterCanvases.forEach((canvas, i) => {
-    if (posterSetIndex === 0) {
-      canvas.material = posterOriginalMaterials.get(canvas);
-      return;
-    }
-    const set = POSTER_SETS[posterSetIndex - 1];
-    const entry = set[i % set.length];
-    canvas.material = new THREE.MeshBasicMaterial({
-      map: getArtTexture(entry, "cover"),
-      toneMapped: false,
-    });
-  });
+// ---------------------------------------------------------------- poster wall: per-canvas swatch cycling
+// Your uploaded designs are ALREADY aligned to each canvas's real UVs (not
+// generic full-bleed images) — so cycling a design never touches the mesh,
+// its material instance, or its geometry/uv in any way. It only ever swaps
+// one property: material.map. Index 0 is the original baked texture
+// (entry.originalMap, captured once at wiring time); indices 1+ come from
+// that canvas's own CANVAS_DESIGNS (data.js) list. Every canvas keeps its
+// own index (modelCanvasSwatches[i].designIndex), so cycling one canvas
+// never touches any other, even though the camera stays framed on the whole
+// wall.
+function setCanvasSwatchDesign(swatchIndex, index) {
+  const entry = modelCanvasSwatches[swatchIndex];
+  if (!entry || !entry.designs) return;
+  const total = entry.designs.length + 1;
+  entry.designIndex = ((index % total) + total) % total;
+  const mat = entry.mesh.material;
+  mat.map =
+    entry.designIndex === 0
+      ? entry.originalMap
+      : getArtTexture(entry.designs[entry.designIndex - 1], "cover");
+  mat.needsUpdate = true;
 }
 
-function stepPosterSet(dir) {
-  setPosterSet(posterSetIndex + dir);
+function stepCanvasSwatchDesign(swatchIndex, dir) {
+  const entry = modelCanvasSwatches[swatchIndex];
+  if (!entry) return;
+  setCanvasSwatchDesign(swatchIndex, (entry.designIndex || 0) + dir);
 }
 
 // ---------------------------------------------------------------- chair: "sit down" camera snap
@@ -1452,6 +1529,7 @@ function enterSeatFocus(index) {
   if (!entry || viewState !== "free") return;
 
   preFocusCam = { pos: camera.position.clone(), target: controls.target.clone(), fov: camera.fov };
+  deactivateHover(hovered);
   hovered = null;
   setHoverScale(entry.group, 1);
   focusedSeatIndex = index;
@@ -1464,6 +1542,10 @@ function enterSeatFocus(index) {
   const { pos, target } = computeSeatTransform(entry.group);
   startCameraTween(pos, target, SEAT_FOV, FOCUS_DURATION, () => {
     viewState = "focused";
+    // resync lookYaw/lookPitch to the seat's actual look direction — without
+    // this, the first mouse-move while seated would snap the view toward
+    // whatever stale angle free-roam left behind before you sat down
+    syncLookAnglesFromTarget();
   });
 }
 
@@ -1586,11 +1668,15 @@ function enterRackFocus(index) {
   if (!alreadyBrowsingRack) {
     if (viewState !== "free") return;
     preFocusCam = { pos: camera.position.clone(), target: controls.target.clone(), fov: camera.fov };
+    // see enterPropFocus's comment — reset whatever's hovered before losing
+    // track of it, or it stays stuck at its hover-scaled size forever
+    deactivateHover(hovered);
     hovered = null;
     controls.enabled = false;
     moveKeys.w = moveKeys.a = moveKeys.s = moveKeys.d = false;
     canvas.classList.remove("hovering");
     focusedKind = "rack";
+    setMobileCycleControlsVisible(true);
   }
 
   selectedRackIndex = index;
@@ -1610,6 +1696,7 @@ function exitRackFocus() {
   selectedRackIndex = -1;
   rackSlideTarget = 0;
   focusedKind = null;
+  setMobileCycleControlsVisible(false);
 
   const { pos, target, fov } = preFocusCam;
   startCameraTween(pos, target, fov, FOCUS_DURATION, () => {
@@ -1641,8 +1728,10 @@ function stepFocus(dir) {
   if (focusedKind === "vinyl") stepVinylFocus(dir);
   else if (focusedKind === "prop") {
     const entry = modelProps[focusedPropIndex];
-    if (entry && entry.group === posterGroupRef) stepPosterSet(dir);
-    else stepPropFocus(dir);
+    // arrow keys are a no-op on the poster wall — cycling now happens per
+    // canvas via direct clicks (see the pointerup "focused" handler), not
+    // a shared left/right step, so arrows shouldn't jump to the next prop
+    if (!entry || !entry.isPosterWall) stepPropFocus(dir);
   }
   // no stepSeatFocus — there's only one chair right now, arrow keys are a
   // no-op while sitting rather than cycling to nothing
@@ -1853,6 +1942,26 @@ Object.entries(MOBILE_MOVE_BUTTON_KEYS).forEach(([id, key]) => {
   btn.addEventListener("pointercancel", release);
   btn.addEventListener("pointerleave", release);
   btn.addEventListener("contextmenu", (e) => e.preventDefault());
+});
+
+// ---------------------------------------------------------------- on-screen mobile prev/next
+// Touch equivalent of the ArrowLeft/ArrowRight keys — same stepFocus(dir)
+// call either way. Unlike the WASD d-pad (always visible once the eyes
+// open), these only show up while something arrow-cycleable is actually
+// focused (vinyl crate or closet rack — see setMobileCycleControlsVisible
+// calls in enter/exitVinylFocus and enter/exitRackFocus), so they don't
+// clutter the screen during ordinary free-roam.
+const mobileCycleControls = document.getElementById("mobile-cycle-controls");
+function setMobileCycleControlsVisible(visible) {
+  if (mobileCycleControls) mobileCycleControls.classList.toggle("show", visible);
+}
+document.getElementById("mc-cycle-prev")?.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  stepFocus(-1);
+});
+document.getElementById("mc-cycle-next")?.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  stepFocus(1);
 });
 
 const _moveForward = new THREE.Vector3();

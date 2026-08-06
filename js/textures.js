@@ -13,7 +13,32 @@ export function getArtTexture(entry, kind = "cover") {
 
   let texture;
   if (entry.image) {
-    texture = loader.load(entry.image);
+    // TextureLoader.load() returns the Texture object immediately, but its
+    // .image stays empty until the network fetch + decode actually finish —
+    // an empty texture samples as solid BLACK in WebGL, which read as "the
+    // click did nothing" even though it's just normal async loading latency.
+    // A neutral gray placeholder here makes that brief gap look like it's
+    // doing something instead of looking broken.
+    texture = new THREE.Texture(drawLoadingSwatch());
+    texture.needsUpdate = true;
+    loader.load(
+      entry.image,
+      (loaded) => {
+        texture.image = loaded.image;
+        texture.needsUpdate = true;
+      },
+      undefined,
+      // onError — a failed fetch/decode used to just leave the texture
+      // empty, which WebGL then samples as solid black (indistinguishable
+      // from "loaded fine, but the art itself is mostly black"). Swapping
+      // in a loud red swatch on failure makes a load error obvious at a
+      // glance in the 3D view instead of looking identical to a real bug.
+      (err) => {
+        console.error(`getArtTexture: failed to load "${entry.image}" —`, err);
+        texture.image = drawLoadErrorSwatch(entry.image);
+        texture.needsUpdate = true;
+      }
+    );
     texture.colorSpace = THREE.SRGBColorSpace;
   } else {
     const canvas =
@@ -26,6 +51,33 @@ export function getArtTexture(entry, kind = "cover") {
   texture.needsUpdate = true;
   cache.set(key, texture);
   return texture;
+}
+
+/** Neutral placeholder shown for the brief moment before a real image finishes loading. */
+function drawLoadingSwatch() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#3a3a3a";
+  ctx.fillRect(0, 0, 64, 64);
+  return c;
+}
+
+/** Bright, unmissable fallback shown when a real image fails to load. */
+function drawLoadErrorSwatch(path) {
+  const c = document.createElement("canvas");
+  c.width = c.height = 512;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#ff1744";
+  ctx.fillRect(0, 0, 512, 512);
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.font = "bold 32px sans-serif";
+  ctx.fillText("IMAGE FAILED", 256, 210);
+  ctx.fillText("TO LOAD", 256, 250);
+  ctx.textAlign = "left";
+  wrapText(ctx, path || "(no path)", 40, 320, 432, 20, "14px monospace");
+  return c;
 }
 
 /** Returns a plain <canvas> (for drawing straight into the lightbox too) */
