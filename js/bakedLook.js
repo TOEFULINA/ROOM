@@ -27,6 +27,7 @@ const BAKED_MATERIAL_SUFFIX = "_baked";
 export function applyBakedLook(model) {
   let convertedCount = 0;
   const seen = new Map(); // material -> converted material, so shared "_baked" materials aren't rebuilt per-mesh
+  const hairCardMeshes = []; // gets a soft-edge overlay pass added after the traverse below finishes
 
   model.traverse((obj) => {
     if (!obj.isMesh) return;
@@ -65,12 +66,14 @@ export function applyBakedLook(model) {
       // what reads as pale, nonsensical streaks cutting across the strands
       // (confirmed against a Blender viewport render showing none of this —
       // Blender's transparency handling doesn't have this limitation, so it
-      // never shows up there). Alpha-testing instead of blending sidesteps
-      // the whole problem: each pixel is either fully opaque or fully
-      // discarded, so there's nothing left to blend in the wrong order.
-      // Trade-off is slightly harder (non-antialiased) strand edges instead
-      // of soft ones — standard for real-time hair cards, and much better
-      // than the streaking.
+      // never shows up there). Plain alpha-testing fixes the streaking (each
+      // pixel is either fully opaque or fully discarded, nothing left to
+      // blend in the wrong order) but trades it for hard, jagged strand
+      // edges. alphaToCoverage keeps the cutout (so still no blend-order
+      // artifacts) but resolves the cutout using MSAA sub-pixel coverage
+      // instead of a hard yes/no per pixel — that's what gets the soft edge
+      // back without reopening the streaking. Needs the renderer's
+      // antialias:true (already on) to actually do anything.
       const isHairCard = /hair/i.test(obj.name);
 
       const baked = new THREE.MeshBasicMaterial({
@@ -79,6 +82,7 @@ export function applyBakedLook(model) {
         color: mat.color,
         transparent: isHairCard ? false : mat.transparent,
         alphaTest: isHairCard ? 0.5 : mat.alphaTest,
+        alphaToCoverage: isHairCard ? true : false,
         side: mat.side,
       });
       // the whole point of a bake is "show exactly what's in the texture" --
@@ -101,7 +105,42 @@ export function applyBakedLook(model) {
       obj.material = Array.isArray(obj.material) ? nextMaterials : nextMaterials[0];
       obj.castShadow = false;
       obj.receiveShadow = false;
+      if (/hair/i.test(obj.name)) hairCardMeshes.push(obj);
     }
+  });
+
+  // alphaToCoverage alone (see isHairCard above) fixed the streaking but
+  // still reads as fairly hard-edged — coverage sampling only gives you as
+  // many soft steps as the renderer's MSAA sample count, which isn't a true
+  // soft blend. This adds a second, IDENTICAL mesh right on top of each
+  // hair mesh, sharing its geometry, but rendered with real alpha blending
+  // (depthWrite off, depthTest on). The first (alphaTest) pass already
+  // wrote the CORRECT depth for every strand, so this second pass's blended
+  // edges are now tested against real, already-resolved depth instead of
+  // against each other — that's what was causing the original streaking
+  // (blending triangles in storage order, not visibility order). Same
+  // trick real-time games use for hair cards: an opaque-ish depth pass plus
+  // a blended color pass on top, instead of trying to make one pass do both.
+  hairCardMeshes.forEach((obj) => {
+    const primary = Array.isArray(obj.material) ? obj.material[0] : obj.material;
+    const softEdge = new THREE.MeshBasicMaterial({
+      name: `${primary.name}_softedge`,
+      map: primary.map || null,
+      color: primary.color,
+      side: primary.side,
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+    });
+    softEdge.toneMapped = false;
+    const overlay = new THREE.Mesh(obj.geometry, softEdge);
+    overlay.position.copy(obj.position);
+    overlay.quaternion.copy(obj.quaternion);
+    overlay.scale.copy(obj.scale);
+    overlay.renderOrder = (obj.renderOrder || 0) + 1;
+    overlay.castShadow = false;
+    overlay.receiveShadow = false;
+    obj.parent.add(overlay);
   });
 
   if (convertedCount > 0) {
