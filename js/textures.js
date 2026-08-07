@@ -103,30 +103,46 @@ export function getArtTexture(entry, kind = "cover") {
   return texture;
 }
 
+// Both swatches below used to be their own fixed sizes (64px, 512px) —
+// completely unrelated to DECODE_SIZE, the size the REAL image eventually
+// lands at. That mismatch is what was actually breaking every poster load,
+// on every platform, this whole time: swapping a texture's .image from a
+// small placeholder to a much bigger real image made the browser's fast
+// GPU texture-update path try to copy the new (bigger) pixels into the
+// old (smaller) texture's already-allocated GPU memory — which is exactly
+// what "GL_INVALID_VALUE: glCopySubTextureCHROMIUM: Offset overflows
+// texture dimensions" in the console means. No loader change was ever
+// going to fix this, because the bug wasn't in how the image got fetched —
+// it was in these two functions handing back the wrong size. Now every
+// stage (loading placeholder, real image, error swatch) is the exact same
+// DECODE_SIZE, so the GPU texture is allocated once, correctly, up front.
+
 /** Neutral placeholder shown for the brief moment before a real image finishes loading. */
 function drawLoadingSwatch() {
   const c = document.createElement("canvas");
-  c.width = c.height = 64;
+  c.width = c.height = DECODE_SIZE;
   const ctx = c.getContext("2d");
   ctx.fillStyle = "#3a3a3a";
-  ctx.fillRect(0, 0, 64, 64);
+  ctx.fillRect(0, 0, DECODE_SIZE, DECODE_SIZE);
   return c;
 }
 
 /** Bright, unmissable fallback shown when a real image fails to load. */
 function drawLoadErrorSwatch(path) {
   const c = document.createElement("canvas");
-  c.width = c.height = 512;
+  c.width = c.height = DECODE_SIZE;
   const ctx = c.getContext("2d");
+  const cx = DECODE_SIZE / 2;
   ctx.fillStyle = "#ff1744";
-  ctx.fillRect(0, 0, 512, 512);
+  ctx.fillRect(0, 0, DECODE_SIZE, DECODE_SIZE);
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "center";
-  ctx.font = "bold 32px sans-serif";
-  ctx.fillText("IMAGE FAILED", 256, 210);
-  ctx.fillText("TO LOAD", 256, 250);
+  const scale = DECODE_SIZE / 512;
+  ctx.font = `bold ${Math.round(32 * scale)}px sans-serif`;
+  ctx.fillText("IMAGE FAILED", cx, 210 * scale);
+  ctx.fillText("TO LOAD", cx, 250 * scale);
   ctx.textAlign = "left";
-  wrapText(ctx, path || "(no path)", 40, 320, 432, 20, "14px monospace");
+  wrapText(ctx, path || "(no path)", 40 * scale, 320 * scale, 432 * scale, 20 * scale, `${Math.round(14 * scale)}px monospace`);
   return c;
 }
 
