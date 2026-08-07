@@ -8,11 +8,11 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 // local import (and on the <script src="js/main.js"> tag in index.html)
 // whenever you push a real change, so phones are forced to re-fetch
 // instead of serving what they already have cached.
-import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-07u";
-import { loadRoomModel } from "./loadModel.js?v=2026-08-07u";
-import { getArtCanvas, getArtTexture } from "./textures.js?v=2026-08-07u";
-import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-07u";
-import { applyBakedLook } from "./bakedLook.js?v=2026-08-07u";
+import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-07x";
+import { loadRoomModel } from "./loadModel.js?v=2026-08-07x";
+import { getArtCanvas, getArtTexture } from "./textures.js?v=2026-08-07x";
+import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-07x";
+import { applyBakedLook } from "./bakedLook.js?v=2026-08-07x";
 
 // ---------------------------------------------------------------- renderer
 const canvas = document.getElementById("scene");
@@ -231,7 +231,12 @@ const bedframeMeshes = [];
 // generic per-item zoom — camera holds one fixed view of the closet and the
 // shirts themselves slide along the rod. The crumpled tee sits on a shelf,
 // not the rod, so it keeps the plain per-item zoom below.
-const RACK_SHIRT_PATTERN = /^(hanging_tee_shirt|men-long-sleeve-shirt-on-hook)/i;
+const RACK_SHIRT_PATTERN = /^hanging_tee_shirt/i;
+// the button-down long-sleeve shirt on its own hook — hidden per explicit
+// request now that the rack is the condensed-mesh multi-design tee system;
+// dropped from RACK_SHIRT_PATTERN above too so it doesn't take up a rack
+// browsing slot while invisible.
+const BUTTON_DOWN_SHIRT_PATTERN = /^men-long-sleeve-shirt-on-hook/i;
 const modelRackShirts = []; // { title, group, baseScale, restLocalPos, axisValue } — sorted in rack order
 let rackAxisKey = "x"; // which world axis the rod runs along — figured out from real positions at load time
 
@@ -656,6 +661,19 @@ loadRoomModel((progress) => {
     //   })(model);
     //   console.info(`hide shoe: hid ${hiddenCount} shoe root(s).`);
     // });
+
+    safeStep("hide button-down shirt", () => {
+      let hiddenCount = 0;
+      (function hideButtonDownRoots(obj) {
+        if (BUTTON_DOWN_SHIRT_PATTERN.test(rawName(obj))) {
+          obj.visible = false;
+          hiddenCount++;
+          return;
+        }
+        obj.children.forEach(hideButtonDownRoots);
+      })(model);
+      console.info(`hide button-down shirt: hid ${hiddenCount} root(s).`);
+    });
 
     // the chair — its own "sit down" camera snap (see computeSeatTransform),
     // not the generic prop zoom
