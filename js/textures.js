@@ -27,13 +27,28 @@ import * as THREE from "three";
 const isCoarsePointer = window.matchMedia?.("(pointer: coarse)").matches;
 const DECODE_SIZE = isCoarsePointer ? 768 : 1024;
 
+// NOTE: createImageBitmap's own resizeWidth/resizeHeight/resizeQuality
+// options used to live directly on this loader — Chrome handles them fine,
+// but that's a newer, less consistently-implemented corner of the spec and
+// iOS Safari was silently never resolving OR rejecting the load when those
+// options were present (no error, no image — just gray forever, which is
+// exactly what showed up on a real iPhone even after the buttons started
+// working). Decoding at full size and downscaling ourselves onto a plain
+// <canvas> right after is a few extra milliseconds but works identically
+// everywhere, and closing the full-res bitmap immediately after drawing it
+// means nothing full-res sticks around in memory afterward anyway.
 const loader = new THREE.ImageBitmapLoader();
 loader.setOptions({
   imageOrientation: "none", // matches TextureLoader's <img> orientation exactly — don't want a flip regression on top of everything else today
-  resizeWidth: DECODE_SIZE,
-  resizeHeight: DECODE_SIZE,
-  resizeQuality: "medium",
 });
+
+function resizeBitmapToCanvas(bitmap, w, h) {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  c.getContext("2d").drawImage(bitmap, 0, 0, w, h);
+  return c;
+}
 
 // The resize fix above capped the cost of any ONE decode, but the cache
 // itself never forgot anything — browse all ~8 designs on all 4 canvases
@@ -77,7 +92,8 @@ export function getArtTexture(entry, kind = "cover") {
     loader.load(
       entry.image,
       (bitmap) => {
-        texture.image = bitmap;
+        texture.image = resizeBitmapToCanvas(bitmap, DECODE_SIZE, DECODE_SIZE);
+        bitmap.close?.();
         texture.needsUpdate = true;
       },
       undefined,
