@@ -77,43 +77,69 @@ export const VINYL_COVERS = [
 // (unlike CLOTHING), so they're omitted.
 export const CANVAS_DESIGNS = {
   "Canvas_n3d": [
-    { image: "images/posters/canvas-0/1.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-0/2.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-0/3.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-0/4.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-0/5.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-0/6.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-0/7.jpg?v=2026-08-07n" },
+    { image: "images/posters/canvas-0/1.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-0/2.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-0/3.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-0/4.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-0/5.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-0/6.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-0/7.jpg?v=2026-08-07s" },
   ],
   "Canvas 2_n3d": [
-    { image: "images/posters/canvas-2/1.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-2/2.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-2/3.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-2/4.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-2/5.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-2/6.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-2/7.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-2/8.jpg?v=2026-08-07n" },
+    { image: "images/posters/canvas-2/1.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-2/2.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-2/3.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-2/4.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-2/5.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-2/6.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-2/7.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-2/8.jpg?v=2026-08-07s" },
   ],
   "Canvas 3_n3d": [
-    { image: "images/posters/canvas-3/1.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-3/2.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-3/3.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-3/4.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-3/5.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-3/6.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-3/7.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-3/8.jpg?v=2026-08-07n" },
+    { image: "images/posters/canvas-3/1.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-3/2.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-3/3.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-3/4.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-3/5.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-3/6.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-3/7.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-3/8.jpg?v=2026-08-07s" },
   ],
   "Canvas 4_n3d": [
-    { image: "images/posters/canvas-4/1.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-4/2.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-4/3.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-4/4.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-4/5.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-4/6.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-4/7.jpg?v=2026-08-07n" },
-    { image: "images/posters/canvas-4/8.jpg?v=2026-08-07n" },
+    { image: "images/posters/canvas-4/1.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-4/2.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-4/3.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-4/4.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-4/5.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-4/6.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-4/7.jpg?v=2026-08-07s" },
+    { image: "images/posters/canvas-4/8.jpg?v=2026-08-07s" },
+  ],
+};
+
+// PAPER_ILLUSTRATIONS: illustrations shown one at a time on the top sheet of
+// the paper stack on the bookshelf. Only the physically topmost sheet
+// (paper_001_mesh_n3d) is interactive — each tap dips it down, swaps to the
+// next image here, then brings it back up. Same rules as CANVAS_DESIGNS:
+// index 0 while browsing is whatever's already baked onto that sheet in the
+// model itself (not listed here); everything below is layered on top of
+// that. Drop your illustration files in images/illustrations/ and list them
+// here in the order you want them to appear.
+export const PAPER_ILLUSTRATIONS = {
+  "paper_001_mesh_n3d": [
+    { image: "images/illustrations/1.jpg?v=2026-08-07u" },
+    { image: "images/illustrations/2.jpg?v=2026-08-07u" },
+    { image: "images/illustrations/3.jpg?v=2026-08-07u" },
+    { image: "images/illustrations/4.jpg?v=2026-08-07u" },
+    { image: "images/illustrations/5.jpg?v=2026-08-07u" },
+    { image: "images/illustrations/6.jpg?v=2026-08-07u" },
+    { image: "images/illustrations/7.jpg?v=2026-08-07u" },
+    { image: "images/illustrations/8.jpg?v=2026-08-07u" },
+    { image: "images/illustrations/9.jpg?v=2026-08-07u" },
+    { image: "images/illustrations/10.jpg?v=2026-08-07u" },
+    { image: "images/illustrations/11.jpg?v=2026-08-07u" },
+    { image: "images/illustrations/12.jpg?v=2026-08-07u" },
+    { image: "images/illustrations/13.jpg?v=2026-08-07u" },
   ],
 };
 

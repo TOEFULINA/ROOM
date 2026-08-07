@@ -8,11 +8,11 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 // local import (and on the <script src="js/main.js"> tag in index.html)
 // whenever you push a real change, so phones are forced to re-fetch
 // instead of serving what they already have cached.
-import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-07n";
-import { loadRoomModel } from "./loadModel.js?v=2026-08-07n";
-import { getArtCanvas, getArtTexture } from "./textures.js?v=2026-08-07n";
-import { CLOTHING, CANVAS_DESIGNS } from "./data.js?v=2026-08-07n";
-import { applyBakedLook } from "./bakedLook.js?v=2026-08-07n";
+import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-07u";
+import { loadRoomModel } from "./loadModel.js?v=2026-08-07u";
+import { getArtCanvas, getArtTexture } from "./textures.js?v=2026-08-07u";
+import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-07u";
+import { applyBakedLook } from "./bakedLook.js?v=2026-08-07u";
 
 // ---------------------------------------------------------------- renderer
 const canvas = document.getElementById("scene");
@@ -248,9 +248,23 @@ const SHOE_MESH_PATTERN = /^clayshoe/i;
 
 // standalone portfolio prop groups that are each already exactly one
 // self-contained clickable unit (several mesh parts, one item) — the desk
-// computer (chassis+screen), the phone (metal+screen+glass+case), and the
-// paper stack (all the loose sheets + the stack mesh)
-const WHOLE_GROUP_NAMES = ["desk computer - about me", "phone-contact me", "paper stack - illustrations"];
+// computer (chassis+screen) and the phone (metal+screen+glass+case). The
+// paper stack USED to be lumped in here too, but it needs its own dedicated
+// wiring (see "paper stack wiring" below) so each loose sheet can be tracked
+// individually for the rise/turn + sift-through-the-stack interaction.
+const WHOLE_GROUP_NAMES = ["desk computer - about me", "phone-contact me"];
+
+// the paper stack on the bookshelf — 5 individual loose sheets
+// (paper_001_mesh_n3d .. paper_005_mesh_n3d) sit on top of one base mesh
+// (paper_stack_mesh_n3d), all under one group. Tapping the group zooms in
+// like any other prop; the top sheet then flips up on its hinge to face the
+// camera. Each further tap fakes "the next page" by dipping that SAME sheet
+// back down, swapping its texture, then bringing it back up — see
+// revealActivePaperSheet/cyclePaperDesign below.
+const PAPER_STACK_GROUP_NAME = "paper stack - illustrations";
+const PAPER_SHEET_MESH_PATTERN = /^paper_\d+_mesh/i;
+const modelPaperSheets = []; // { mesh, originalMap, restPos, restQuat, designs } — sorted top-of-stack first, only index 0 is interactive
+let paperStackGroup = null; // set once during wiring, read by the rise/turn math below
 
 // the computer and phone each have their own actual screen mesh inside the
 // group (confirmed in the model: "Screen_Screen_0_n3d" under the computer,
@@ -729,6 +743,78 @@ loadRoomModel((progress) => {
       }
     });
 
+    // the paper stack — one modelProps entry for the whole group (so a tap
+    // zooms in exactly like any other prop), plus each of the 5 loose sheet
+    // meshes tracked individually in modelPaperSheets so the rise/turn
+    // interaction can animate exactly one at a time. Sorted top-of-stack
+    // first by each sheet's own local geometry height, so revealing "the
+    // next one" always matches which sheet is actually physically
+    // underneath the one currently showing.
+    safeStep("paper stack wiring", () => {
+      let stackGroup = null;
+      model.traverse((obj) => {
+        if (!stackGroup && rawName(obj) === PAPER_STACK_GROUP_NAME) stackGroup = obj;
+      });
+      if (!stackGroup) {
+        console.warn(`paper stack wiring: no "${PAPER_STACK_GROUP_NAME}" group found in the model.`);
+        return;
+      }
+      const allMeshes = [];
+      stackGroup.traverse((child) => {
+        if (child.isMesh) allMeshes.push(child);
+      });
+      const sheetMeshes = allMeshes.filter((m) => PAPER_SHEET_MESH_PATTERN.test(rawName(m)));
+      if (!sheetMeshes.length) {
+        console.warn(`paper stack wiring: "${PAPER_STACK_GROUP_NAME}" found but no sheet meshes matched ${PAPER_SHEET_MESH_PATTERN}.`);
+        return;
+      }
+      sheetMeshes.forEach((m) => {
+        if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+      });
+      sheetMeshes.sort((a, b) => b.geometry.boundingBox.max.y - a.geometry.boundingBox.max.y);
+
+      paperStackGroup = stackGroup;
+      const groupPropIndex = modelProps.length;
+      modelProps.push({
+        title: cleanTitle(rawName(stackGroup)),
+        group: stackGroup,
+        isPaperStack: true,
+      });
+      // every mesh in the group (sheets + the base) is the "tap to zoom in"
+      // target while in free-roam, same as any other whole-group prop
+      allMeshes.forEach((m) => {
+        m.userData = { interactive: true, kind: "groupModel", index: groupPropIndex };
+      });
+      // sheets ALSO get a paperSheetIndex — read only once already focused,
+      // to tell "tap the currently-risen sheet" apart from "tap anything
+      // else" (see the pointerup focused-state handler)
+      // only the topmost sheet (index 0) actually animates/swaps textures —
+      // the rest stay flat and untouched, purely there so the stack still
+      // reads as a stack. They're still tracked here (in stacked order) in
+      // case a future pass wants a sheet other than the top one interactive.
+      sheetMeshes.forEach((mesh, i) => {
+        const designs = i === 0 ? (PAPER_ILLUSTRATIONS[rawName(mesh)] || null) : null;
+        modelPaperSheets.push({
+          mesh,
+          originalMap: mesh.material.map, // the true baked-blank texture — kept around so it's still reachable by cycling all the way around, just no longer the default shown
+          restPos: mesh.position.clone(),
+          restQuat: mesh.quaternion.clone(),
+          designs,
+        });
+        if (i === 0) {
+          mesh.userData.paperSheetIndex = 0;
+          // shows a real illustration from the moment the page loads
+          // (flat, resting in the stack — same texture whether risen or
+          // not) instead of the blank bake, per explicit request
+          if (designs && designs.length) {
+            mesh.material.map = getArtTexture(designs[0], "cover");
+            mesh.material.needsUpdate = true;
+          }
+        }
+      });
+      console.info(`paper stack wiring: ${sheetMeshes.length} sheet(s) wired, top-of-stack first.`);
+    });
+
     // tint the window glass with a soft daylight emissive so it doesn't
     // read as a black void at night — see WINDOW_MESH_PATTERN above. Now
     // that a real WindowBackdrop object exists just outside, the glass is
@@ -977,6 +1063,18 @@ canvas.addEventListener("pointerup", (e) => {
       if (obj && obj.userData.kind === "canvasSwatch") {
         activePosterCanvasIndex = obj.userData.index;
         stepCanvasSwatchDesign(obj.userData.index, 1);
+        pointerDownPos = null;
+        return;
+      }
+    }
+    // while the paper stack is focused, tapping the risen sheet dips it,
+    // swaps its texture, and brings it back up (fake page-flip) instead of
+    // exiting — tapping anything else still exits normally below.
+    if (focusedKind === "prop" && modelProps[focusedPropIndex]?.isPaperStack) {
+      setPointerFromEvent(e);
+      const obj = pickIntersect();
+      if (obj && obj.userData.paperSheetIndex === 0) {
+        cyclePaperDesign(1);
         pointerDownPos = null;
         return;
       }
@@ -1448,6 +1546,125 @@ function computeScreenFocusTransform(mesh) {
 // canvasSwatch branch in the pointerup handler), defaulting to the first.
 let activePosterCanvasIndex = 0;
 
+// ---------------------------------------------------------------- paper stack: rise/turn + fake page-flip reveal
+// Only the physically topmost sheet (modelPaperSheets[0]) ever actually
+// moves — the other 4 stay flat and untouched, purely there so the stack
+// still looks like a stack. Each tap fakes "the next page" by dipping THAT
+// SAME sheet back down, swapping its texture at the bottom (out of frame,
+// same trick a real page flip uses to hide the swap), then bringing it back
+// up already showing the new one. designIndex 0 is always whatever's
+// already baked onto it in the model; indices 1+ come from its own
+// PAPER_ILLUSTRATIONS (data.js) list once those exist.
+// starts on the first real illustration (designIndex 1, since 0 is the
+// blank bake) to match the wiring step's initial texture swap above — kept
+// in sync so the first cyclePaperDesign() call computes the next step off
+// the right baseline
+let activePaperDesignIndex = 1;
+
+const PAPER_RISE_LIFT = 0.16; // meters, local Y — clears the ~2.5cm stack height with room to spare
+const PAPER_RISE_PUSH = 0.05; // meters, local — nudges the risen sheet along the front axis so it doesn't clip the sheets still underneath it
+const PAPER_TWEEN_DURATION = 0.5; // seconds — the rise/turn itself
+const PAPER_LOWER_DURATION = 0.3; // seconds — dipping back down for a swap, a bit snappier than the rise
+
+// The front axis (computePropFrontAxis) gets cached on the group's own
+// userData the FIRST time it's computed — which happens inside
+// computePaperStackFocusTransform, called by enterPropFocus just before
+// this ever runs — so this always finds a real cached value in practice.
+// The recompute here is just a defensive fallback.
+function computePaperRiseTransform(entry, group) {
+  const frontAxis = group.userData.frontAxis || computePropFrontAxis(group, camera.position, group);
+  const groupWorldQuat = group.getWorldQuaternion(new THREE.Quaternion());
+  // frontAxis is world-space (always exactly world X or Z, see
+  // computePropFrontAxis) — convert it into the group's LOCAL space so it
+  // can be compared against the sheet's own local "lying flat" +Y normal
+  const localDir = frontAxis.clone().applyQuaternion(groupWorldQuat.clone().invert());
+  // A plain setFromUnitVectors(localUp, localDir) here technically DOES tip
+  // the sheet to a horizontal-facing normal, but leaves an uncontrolled
+  // "roll" around that new facing direction — since this group itself sits
+  // rotated ~97° off the world axes, that roll wasn't zero, and the sheet
+  // came up looking like a diagonal, rolled card instead of standing up
+  // straight. Building an explicit look-basis instead — face normal along
+  // localDir, "up" locked to true vertical, the sheet's own longer edge
+  // (local Z, its 35cm depth vs. 30cm width) assigned to that up direction
+  // so it stands portrait — guarantees no roll, however the group happens
+  // to be rotated.
+  const localUp = new THREE.Vector3(0, 1, 0); // group only rotates about Y, so world up IS local up here
+  const localRight = new THREE.Vector3().crossVectors(localDir, localUp).normalize();
+  const basis = new THREE.Matrix4().makeBasis(localRight, localDir, localUp);
+  const quat = new THREE.Quaternion().setFromRotationMatrix(basis);
+  const pos = entry.restPos
+    .clone()
+    .addScaledVector(new THREE.Vector3(0, 1, 0), PAPER_RISE_LIFT)
+    .addScaledVector(localDir, PAPER_RISE_PUSH);
+  return { pos, quat };
+}
+
+// Frames the camera around where the sheet will END UP once risen, not its
+// current flat resting box — computed BEFORE the rise tween starts, off a
+// projected world matrix, so the camera arrives already correctly framed
+// instead of tight on the small flat stack and then getting its own tenant
+// grow past the top of frame. Also primes group.userData.frontAxis (used by
+// computePaperRiseTransform above) as a side effect of the first call.
+function computePaperStackFocusTransform(entry, group) {
+  group.updateMatrixWorld(true);
+  const frontAxis = computePropFrontAxis(group, camera.position, group);
+  const { pos: risePos, quat: riseQuat } = computePaperRiseTransform(entry, group);
+  const localMatrix = new THREE.Matrix4().compose(risePos, riseQuat, entry.mesh.scale);
+  const worldMatrix = new THREE.Matrix4().multiplyMatrices(group.matrixWorld, localMatrix);
+  const box = entry.mesh.geometry.boundingBox.clone().applyMatrix4(worldMatrix);
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const { distance, fov } = computeFramedView(size, computeThinAxis(size), FOCUS_FOV, FOCUS_FRAME_FRACTION);
+  const pos = center.clone().addScaledVector(frontAxis, distance);
+  return { pos, target: center, fov };
+}
+
+function revealActivePaperSheet() {
+  const entry = modelPaperSheets[0];
+  if (!entry || !paperStackGroup) return;
+  const { pos, quat } = computePaperRiseTransform(entry, paperStackGroup);
+  startObjectTween(entry.mesh, pos, quat, PAPER_TWEEN_DURATION);
+}
+
+// backing out of focus entirely — snap the sheet back flat and reset to the
+// original baked texture, so coming back later always starts from the top
+function resetPaperStack() {
+  const entry = modelPaperSheets[0];
+  if (!entry) return;
+  startObjectTween(entry.mesh, entry.restPos, entry.restQuat, PAPER_LOWER_DURATION);
+  // "default" is the first real illustration (designIndex 1), matching the
+  // wiring step's starting texture — same fallback-to-blank-bake logic as
+  // cyclePaperDesign for the (currently hypothetical) no-designs case
+  const defaultIndex = entry.designs && entry.designs.length ? 1 : 0;
+  if (activePaperDesignIndex !== defaultIndex) {
+    entry.mesh.material.map = defaultIndex === 0 ? entry.originalMap : getArtTexture(entry.designs[defaultIndex - 1], "cover");
+    entry.mesh.material.needsUpdate = true;
+  }
+  activePaperDesignIndex = defaultIndex;
+}
+
+// tapping the risen sheet — dips it back down, swaps to the next
+// illustration once it's out of frame, then rises back up already showing
+// it. Looping back to the original bake once you run out of illustrations
+// feels better than stopping dead with nothing left to tap.
+function cyclePaperDesign(dir) {
+  const entry = modelPaperSheets[0];
+  if (!entry || !paperStackGroup) return;
+  const total = (entry.designs?.length || 0) + 1;
+  if (total <= 1) return; // no illustrations added yet — nothing to cycle to
+  const now = performance.now();
+  if (entry.nextStepAllowedAt && now < entry.nextStepAllowedAt) return;
+  entry.nextStepAllowedAt = now + CANVAS_STEP_COOLDOWN_MS;
+  const nextIndex = ((activePaperDesignIndex + dir) % total + total) % total;
+  startObjectTween(entry.mesh, entry.restPos, entry.restQuat, PAPER_LOWER_DURATION, () => {
+    entry.mesh.material.map = nextIndex === 0 ? entry.originalMap : getArtTexture(entry.designs[nextIndex - 1], "cover");
+    entry.mesh.material.needsUpdate = true;
+    activePaperDesignIndex = nextIndex;
+    const { pos, quat } = computePaperRiseTransform(entry, paperStackGroup);
+    startObjectTween(entry.mesh, pos, quat, PAPER_TWEEN_DURATION);
+  });
+}
+
 function enterPropFocus(index) {
   const entry = modelProps[index];
   if (!entry || viewState !== "free") return;
@@ -1477,12 +1694,26 @@ function enterPropFocus(index) {
   viewState = "tweening";
 
   const baseFov = entry.focusFov || FOCUS_FOV;
-  const { pos, target, fov } = entry.screenMesh
-    ? computeScreenFocusTransform(entry.screenMesh)
-    : computePropFocusTransform(entry.group, entry.focusTarget, baseFov);
+  let pos, target, fov;
+  if (entry.screenMesh) {
+    ({ pos, target, fov } = computeScreenFocusTransform(entry.screenMesh));
+  } else if (entry.isPaperStack) {
+    // frames around where the top sheet will END UP once risen, not its
+    // current flat resting box — see computePaperStackFocusTransform
+    ({ pos, target, fov } = computePaperStackFocusTransform(modelPaperSheets[0], entry.group));
+  } else {
+    ({ pos, target, fov } = computePropFocusTransform(entry.group, entry.focusTarget, baseFov));
+  }
   startCameraTween(pos, target, fov, FOCUS_DURATION, () => {
     viewState = "focused";
   });
+
+  // runs in parallel with the camera tween that just started, not after it
+  // — same tap triggers both the zoom AND the sheet rising to face it
+  if (entry.isPaperStack) {
+    setMobileCycleControlsVisible(true);
+    revealActivePaperSheet();
+  }
 }
 
 function exitPropFocus() {
@@ -1490,6 +1721,10 @@ function exitPropFocus() {
   viewState = "tweening";
   if (focusedPropIndex >= 0) setHoverScale(modelProps[focusedPropIndex]?.group, 1);
   if (modelProps[focusedPropIndex]?.isPosterWall) setMobileCycleControlsVisible(false);
+  if (modelProps[focusedPropIndex]?.isPaperStack) {
+    setMobileCycleControlsVisible(false);
+    resetPaperStack();
+  }
   focusedPropIndex = -1;
   focusedKind = null;
   setMobileMoveControlsVisible(true);
@@ -1817,6 +2052,9 @@ function stepFocus(dir) {
     // same per-canvas cycle without having to land a tap on the 3D mesh
     // itself (that raycasted tap is what's been unreliable on mobile).
     if (entry?.isPosterWall) stepCanvasSwatchDesign(activePosterCanvasIndex, dir);
+    // same forward/back language as the poster wall's arrows, cycling the
+    // paper stack's illustrations instead of re-zooming to a different prop
+    else if (entry?.isPaperStack) cyclePaperDesign(dir);
     else stepPropFocus(dir);
   }
   // no stepSeatFocus — there's only one chair right now, arrow keys are a
@@ -1843,6 +2081,28 @@ function easeInOutCubic(x) {
   // quintic ease — gentler ramp in/out than cubic, reads as a smoother glide
   // rather than a snap (name kept as-is so call sites don't need touching)
   return x < 0.5 ? 16 * x * x * x * x * x : 1 - Math.pow(-2 * x + 2, 5) / 2;
+}
+
+// ---------------------------------------------------------------- generic object tween helper (position + quaternion)
+// Same glide as camTween above, just for an arbitrary mesh's local
+// position/quaternion instead of the camera — used by the paper stack's
+// rise/turn. Multiple can run at once (the old sheet lowering while the new
+// one rises), keyed by object so re-tweening the same mesh mid-flight
+// replaces its tween instead of fighting an old one for control of it.
+const objectTweens = [];
+function startObjectTween(obj, toPos, toQuat, duration, onDone) {
+  const existingIdx = objectTweens.findIndex((tw) => tw.obj === obj);
+  if (existingIdx >= 0) objectTweens.splice(existingIdx, 1);
+  objectTweens.push({
+    obj,
+    fromPos: obj.position.clone(),
+    toPos: toPos.clone(),
+    fromQuat: obj.quaternion.clone(),
+    toQuat: toQuat.clone(),
+    duration,
+    elapsed: 0,
+    onDone,
+  });
 }
 
 // ---------------------------------------------------------------- intro / start menu
@@ -2208,6 +2468,24 @@ function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
   const t = clock.elapsedTime;
+
+  // runs independently of camTween below — the paper stack's sheet rise/
+  // turn needs to animate at the same time the camera is still tweening
+  // into focus (same tap triggers both)
+  if (objectTweens.length) {
+    for (let i = objectTweens.length - 1; i >= 0; i--) {
+      const tw = objectTweens[i];
+      tw.elapsed += delta;
+      const p = Math.min(1, tw.elapsed / tw.duration);
+      const e = easeInOutCubic(p);
+      tw.obj.position.lerpVectors(tw.fromPos, tw.toPos, e);
+      tw.obj.quaternion.slerpQuaternions(tw.fromQuat, tw.toQuat, e);
+      if (p >= 1) {
+        objectTweens.splice(i, 1);
+        if (tw.onDone) tw.onDone();
+      }
+    }
+  }
 
   if (camTween) {
     // camera is fully hand-driven during a zoom transition — OrbitControls
