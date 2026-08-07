@@ -1,10 +1,18 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js";
-import { loadRoomModel } from "./loadModel.js";
-import { getArtCanvas, getArtTexture } from "./textures.js";
-import { CLOTHING, CANVAS_DESIGNS } from "./data.js";
-import { applyBakedLook } from "./bakedLook.js";
+// The "?v=" on every local import below is a manual cache-bust — GitHub
+// Pages doesn't send headers that make phones reliably re-fetch a changed
+// module file, so a phone that already visited once can keep running an
+// OLD cached copy of textures.js/room.js/etc even after a fresh push,
+// with zero indication anything's stale. Bump this same tag on every
+// local import (and on the <script src="js/main.js"> tag in index.html)
+// whenever you push a real change, so phones are forced to re-fetch
+// instead of serving what they already have cached.
+import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-07a";
+import { loadRoomModel } from "./loadModel.js?v=2026-08-07a";
+import { getArtCanvas, getArtTexture } from "./textures.js?v=2026-08-07a";
+import { CLOTHING, CANVAS_DESIGNS } from "./data.js?v=2026-08-07a";
+import { applyBakedLook } from "./bakedLook.js?v=2026-08-07a";
 
 // ---------------------------------------------------------------- renderer
 const canvas = document.getElementById("scene");
@@ -1504,9 +1512,24 @@ function stepPropFocus(dir) {
 // own index (modelCanvasSwatches[i].designIndex), so cycling one canvas
 // never touches any other, even though the camera stays framed on the whole
 // wall.
+// Rapid-fire tapping used to be able to kick off several full image decodes
+// on the SAME canvas at once (tap 5 times fast on designs you've never
+// viewed yet = 5 concurrent decodes in flight) — the cache cap only frees
+// memory once a decode finishes and lands in the cache, it can't stop
+// several from being mid-flight simultaneously, which is what was still
+// showing as "stuck gray, refreshes if you tap enough times fast enough."
+// This cooldown just ignores taps on a given canvas that land too soon
+// after the last one, so at most one new decode per canvas is ever
+// actually in flight — normal browsing speed is well under this, so it
+// shouldn't feel throttled in practice.
+const CANVAS_STEP_COOLDOWN_MS = 350;
+
 function setCanvasSwatchDesign(swatchIndex, index) {
   const entry = modelCanvasSwatches[swatchIndex];
   if (!entry || !entry.designs) return;
+  const now = performance.now();
+  if (entry.nextStepAllowedAt && now < entry.nextStepAllowedAt) return;
+  entry.nextStepAllowedAt = now + CANVAS_STEP_COOLDOWN_MS;
   const total = entry.designs.length + 1;
   entry.designIndex = ((index % total) + total) % total;
   const mat = entry.mesh.material;
