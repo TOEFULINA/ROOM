@@ -1,52 +1,31 @@
 import * as THREE from "three";
 
-// ImageBitmapLoader instead of the usual TextureLoader — TextureLoader
-// decodes via a plain <img>, and that decode competes with the WebGL
-// canvas's own continuous rendering on the SAME main thread, which is why
-// a poster click could sit on the gray placeholder for a very long time
-// even though the file itself downloads fast (confirmed: fetching the same
-// URL directly in a fresh tab was instant, and the rest of the page stayed
-// responsive the whole time — classic main-thread decode contention, not a
-// network problem). ImageBitmapLoader decodes off-thread via
-// createImageBitmap() and hands three.js an already-decoded bitmap, so it
-// doesn't have to fight the render loop for a turn on the main thread.
-// Decoding at the full 2048x2048 source resolution was fine on desktop but
-// too heavy on mobile — each decode holds ~16MB of raw pixels in memory
-// before upload, and tapping through a few designs stacks up several of
-// those at once, which is exactly what was showing as "stuck gray, then a
-// forced page reload after enough taps" (classic mobile browser memory
-// pressure, not a network or logic bug). Resizing down at decode time
-// (browsers do this efficiently during JPEG decode, not as a separate
-// full-res-then-shrink pass) cuts that to a quarter — plenty sharp for a
-// wall poster viewed from normal camera distance in the 3D scene, never
-// inspected pixel-for-pixel.
-// Mobile screens are physically smaller AND are the exact devices that were
-// still crashing after the 1024 resize — dropping further to 768 on
-// coarse-pointer (touch) devices specifically cuts per-image memory another
-// ~44% on top of that, with zero visible quality loss on a phone screen.
+// Went to ImageBitmapLoader earlier today to get poster decoding off the
+// main thread (avoids fighting the WebGL render loop for a turn), then
+// through two rounds of trying to patch createImageBitmap-specific quirks
+// (its resizeWidth/resizeHeight options, then the bitmap decode itself) —
+// each attempt "fixed" one symptom but poster art ended up permanently
+// stuck on the gray placeholder on BOTH mobile and desktop, which means the
+// problem was never actually isolated to one browser's createImageBitmap
+// support, it was the whole approach. Reverting all the way back to plain
+// THREE.TextureLoader — the original, boring, universally-supported
+// <img>-based loader this project used before any of today's ImageBitmap
+// detour — trading back "might briefly contend with the render loop on a
+// slow device" for "actually works everywhere," which is the right side of
+// that trade after real devices kept disagreeing with the fancier version.
 const isCoarsePointer = window.matchMedia?.("(pointer: coarse)").matches;
 const DECODE_SIZE = isCoarsePointer ? 768 : 1024;
 
-// NOTE: createImageBitmap's own resizeWidth/resizeHeight/resizeQuality
-// options used to live directly on this loader — Chrome handles them fine,
-// but that's a newer, less consistently-implemented corner of the spec and
-// iOS Safari was silently never resolving OR rejecting the load when those
-// options were present (no error, no image — just gray forever, which is
-// exactly what showed up on a real iPhone even after the buttons started
-// working). Decoding at full size and downscaling ourselves onto a plain
-// <canvas> right after is a few extra milliseconds but works identically
-// everywhere, and closing the full-res bitmap immediately after drawing it
-// means nothing full-res sticks around in memory afterward anyway.
-const loader = new THREE.ImageBitmapLoader();
-loader.setOptions({
-  imageOrientation: "none", // matches TextureLoader's <img> orientation exactly — don't want a flip regression on top of everything else today
-});
+const loader = new THREE.TextureLoader();
 
-function resizeBitmapToCanvas(bitmap, w, h) {
+// Still resize down after loading — this is what keeps repeated taps
+// through a canvas's design list from stacking up multiple full 2048x2048
+// decodes in memory, independent of which loader fetched the image.
+function resizeImageToCanvas(imgOrCanvas, w, h) {
   const c = document.createElement("canvas");
   c.width = w;
   c.height = h;
-  c.getContext("2d").drawImage(bitmap, 0, 0, w, h);
+  c.getContext("2d").drawImage(imgOrCanvas, 0, 0, w, h);
   return c;
 }
 
@@ -91,9 +70,11 @@ export function getArtTexture(entry, kind = "cover") {
     texture.needsUpdate = true;
     loader.load(
       entry.image,
-      (bitmap) => {
-        texture.image = resizeBitmapToCanvas(bitmap, DECODE_SIZE, DECODE_SIZE);
-        bitmap.close?.();
+      (loadedTexture) => {
+        // TextureLoader hands back a whole Texture wrapping an <img>, not a
+        // raw bitmap — .image is the actual <img> element to draw from.
+        texture.image = resizeImageToCanvas(loadedTexture.image, DECODE_SIZE, DECODE_SIZE);
+        loadedTexture.dispose();
         texture.needsUpdate = true;
       },
       undefined,

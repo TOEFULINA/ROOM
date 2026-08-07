@@ -8,11 +8,11 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 // local import (and on the <script src="js/main.js"> tag in index.html)
 // whenever you push a real change, so phones are forced to re-fetch
 // instead of serving what they already have cached.
-import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-07k";
-import { loadRoomModel } from "./loadModel.js?v=2026-08-07k";
-import { getArtCanvas, getArtTexture } from "./textures.js?v=2026-08-07k";
-import { CLOTHING, CANVAS_DESIGNS } from "./data.js?v=2026-08-07k";
-import { applyBakedLook } from "./bakedLook.js?v=2026-08-07k";
+import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-07l";
+import { loadRoomModel } from "./loadModel.js?v=2026-08-07l";
+import { getArtCanvas, getArtTexture } from "./textures.js?v=2026-08-07l";
+import { CLOTHING, CANVAS_DESIGNS } from "./data.js?v=2026-08-07l";
+import { applyBakedLook } from "./bakedLook.js?v=2026-08-07l";
 
 // ---------------------------------------------------------------- renderer
 const canvas = document.getElementById("scene");
@@ -897,10 +897,11 @@ function activateHover(obj) {
     const entry = modelRackShirts[obj.userData.index];
     if (entry) entry.group.userData.rackHovered = true;
   } else if (obj.userData.kind === "canvasSwatch") {
-    // a subtler bump than the default 1.08 — these are big flat wall
-    // pieces, an 8% grow reads as janky at that size, and it's a much
-    // wider margin around whatever precision the 999999x scale needs
-    setHoverScale(obj, 1.015);
+    // no hover grow on these — was a subtle 1.5% scale bump, removed per
+    // request. Left as a real branch (rather than falling into the
+    // catch-all below) so a future "actually let's bring it back" doesn't
+    // need to rediscover why canvases were special-cased in the first
+    // place (999999x compensating scale, see deactivateHover above).
   } else {
     setHoverScale(obj, 1.08);
   }
