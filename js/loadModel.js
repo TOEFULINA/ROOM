@@ -3,7 +3,13 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 
 // Path to your real room model. Drop a new .glb here (same filename) to swap it out.
-export const MODEL_PATH = "models/room.glb";
+// The "?v=" is the same manual cache-bust used on the JS files (see main.js's
+// imports) — a 58MB file is exactly the kind of asset a CDN/browser caches
+// the LONGEST, so without this, geometry/position fixes inside the glb
+// itself (like the hair nudge) can keep showing the old version on a phone
+// or a fresh CDN edge even after a real, successful push. Bump this same
+// tag whenever room.glb's actual content changes.
+export const MODEL_PATH = "models/room.glb?v=2026-08-07b";
 
 // Used to ship as two files (room.glb + room-extras.glb) because GitHub
 // hard-rejects any single file over 100MB, and the uncompressed geometry
