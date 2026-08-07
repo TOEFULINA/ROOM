@@ -57,12 +57,28 @@ export function applyBakedLook(model) {
         mat.map.needsUpdate = true;
       }
 
+      // Hair is modeled as several overlapping alpha strand cards in ONE
+      // mesh — glTF exported it as alphaMode BLEND, which three.js renders
+      // by soft-blending triangles in whatever order they happen to be
+      // stored in, NOT sorted correctly against each other. Overlapping
+      // semi-transparent edges compositing in the wrong order is exactly
+      // what reads as pale, nonsensical streaks cutting across the strands
+      // (confirmed against a Blender viewport render showing none of this —
+      // Blender's transparency handling doesn't have this limitation, so it
+      // never shows up there). Alpha-testing instead of blending sidesteps
+      // the whole problem: each pixel is either fully opaque or fully
+      // discarded, so there's nothing left to blend in the wrong order.
+      // Trade-off is slightly harder (non-antialiased) strand edges instead
+      // of soft ones — standard for real-time hair cards, and much better
+      // than the streaking.
+      const isHairCard = /hair/i.test(obj.name);
+
       const baked = new THREE.MeshBasicMaterial({
         name: mat.name,
         map: mat.map || null,
         color: mat.color,
-        transparent: mat.transparent,
-        alphaTest: mat.alphaTest,
+        transparent: isHairCard ? false : mat.transparent,
+        alphaTest: isHairCard ? 0.5 : mat.alphaTest,
         side: mat.side,
       });
       // the whole point of a bake is "show exactly what's in the texture" --
