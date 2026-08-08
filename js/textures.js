@@ -495,6 +495,39 @@ export function makeCarpetTextureSet(base = "#f0dd8c") {
   return { colorTex, heightTex, normalTex };
 }
 
+// Single soft round puff for the joint's smoke wisp (see main.js's ambient
+// smoke system) — a few overlapping soft-edged blobs rather than one clean
+// circle, so a single sprite already reads as "wisp of smoke" instead of
+// "glowing dot" before any per-particle animation even starts.
+export function makeSmokeSpriteTexture() {
+  const size = 128;
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d");
+  const blobs = [
+    { x: 0.5, y: 0.5, r: 0.42 },
+    { x: 0.34, y: 0.56, r: 0.28 },
+    { x: 0.64, y: 0.42, r: 0.26 },
+    { x: 0.52, y: 0.7, r: 0.22 },
+  ];
+  blobs.forEach((b) => {
+    const cx = b.x * size;
+    const cy = b.y * size;
+    const r = b.r * size;
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    grad.addColorStop(0, "rgba(214,212,204,0.9)");
+    grad.addColorStop(0.6, "rgba(214,212,204,0.45)");
+    grad.addColorStop(1, "rgba(214,212,204,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 export function makeVinylLabelTexture(accent = "#ffce6b") {
   const c = document.createElement("canvas");
   c.width = c.height = 256;

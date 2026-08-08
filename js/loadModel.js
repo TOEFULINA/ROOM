@@ -9,7 +9,7 @@ import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 // itself (like the hair nudge) can keep showing the old version on a phone
 // or a fresh CDN edge even after a real, successful push. Bump this same
 // tag whenever room.glb's actual content changes.
-export const MODEL_PATH = "models/room.glb?v=2026-08-07zj";
+export const MODEL_PATH = "models/room.glb?v=2026-08-07zm";
 
 // Used to ship as two files (room.glb + room-extras.glb) because GitHub
 // hard-rejects any single file over 100MB, and the uncompressed geometry

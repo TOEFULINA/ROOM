@@ -8,11 +8,11 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 // local import (and on the <script src="js/main.js"> tag in index.html)
 // whenever you push a real change, so phones are forced to re-fetch
 // instead of serving what they already have cached.
-import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-07zj";
-import { loadRoomModel } from "./loadModel.js?v=2026-08-07zj";
-import { getArtCanvas, getArtTexture } from "./textures.js?v=2026-08-07zj";
-import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-07zj";
-import { applyBakedLook } from "./bakedLook.js?v=2026-08-07zj";
+import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-07zm";
+import { loadRoomModel } from "./loadModel.js?v=2026-08-07zm";
+import { getArtCanvas, getArtTexture, makeSmokeSpriteTexture } from "./textures.js?v=2026-08-07zm";
+import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-07zm";
+import { applyBakedLook } from "./bakedLook.js?v=2026-08-07zm";
 
 // ---------------------------------------------------------------- renderer
 const canvas = document.getElementById("scene");
@@ -298,6 +298,12 @@ const modelCanvasSwatches = []; // { mesh, designs, designIndex, originalMap } �
 // rather than the camera looking AT the chair from outside
 const CHAIR_MESH_PATTERN = /^Poang chair/i;
 const modelSeats = []; // { title, group }
+
+const modelSmokeParticles = []; // { sprite, origin, life, age, wobblePhase, driftAngle } — see "ambient smoke wisp" wiring
+const SMOKE_RISE = 0.16; // meters over one particle's lifetime
+const SMOKE_DRIFT = 0.03; // meters of side-to-side wander at peak
+const SMOKE_BASE_SIZE = 0.035; // meters, sprite width at spawn
+const SMOKE_PEAK_OPACITY = 0.3;
 
 // GLTFLoader replaces spaces in every node name with underscores when it
 // builds the scene graph (three.js's own PropertyBinding.sanitizeNodeName,
@@ -891,6 +897,49 @@ loadRoomModel((progress) => {
       }
     });
 
+    // ambient smoke wisp off the joint on the loft bed — purely decorative,
+    // never interactive, always playing. A handful of soft alpha-blended
+    // sprites (not real volumetric raymarching, which is exactly the kind
+    // of per-pixel GPU cost the mobile-lag fixes above were about removing)
+    // drift up from the joint's position, spread, and fade out on a loop.
+    // Cheap enough that it isn't worth gating behind viewState at all.
+    safeStep("ambient smoke wisp", () => {
+      const jointNode = model.getObjectByName("joint");
+      if (!jointNode) {
+        console.warn('ambient smoke wisp: no "joint" node found in the model.');
+        return;
+      }
+      jointNode.updateWorldMatrix(true, false);
+      const origin = jointNode.getWorldPosition(new THREE.Vector3());
+      origin.y += 0.02; // starts just above the joint's own geometry, not inside it
+
+      const smokeTexture = makeSmokeSpriteTexture();
+      const SMOKE_COUNT = 6;
+
+      modelSmokeParticles.length = 0;
+      for (let i = 0; i < SMOKE_COUNT; i++) {
+        const material = new THREE.SpriteMaterial({
+          map: smokeTexture,
+          transparent: true,
+          depthWrite: false,
+          opacity: 0,
+        });
+        const sprite = new THREE.Sprite(material);
+        sprite.renderOrder = 5;
+        scene.add(sprite);
+        const life = 2.6 + Math.random() * 1.6;
+        modelSmokeParticles.push({
+          sprite,
+          origin,
+          life,
+          age: Math.random() * life, // stagger so they don't all pulse in sync
+          wobblePhase: Math.random() * Math.PI * 2,
+          driftAngle: Math.random() * Math.PI * 2,
+        });
+      }
+      console.info(`ambient smoke wisp: ${SMOKE_COUNT} particle(s) started at the joint.`);
+    });
+
     // THIS is the step that actually makes anything clickable — it must
     // run no matter what happened above, which is the entire point of
     // wrapping every step above in safeStep().
@@ -935,6 +984,45 @@ loadRoomModel((progress) => {
       });
       renderer.compile(scene, camera);
       culledMeshes.forEach((obj) => { obj.frustumCulled = true; });
+
+      // renderer.compile() above only gets the SHADER PROGRAMS ready — it
+      // does not touch the GPU texture upload (decode + glTexImage2D) for
+      // each material's maps, which three.js still defers to the first
+      // actual render() call that draws it. On mobile GPUs that upload is
+      // the expensive half, not the shader compile, and with 140+ baked
+      // webp textures in this room (the closet's shirts/vinyl/canvases
+      // especially, since those bakes are large and numerous) that's
+      // exactly the still-there stutter: fine while just sitting looking at
+      // plain walls, laggy the moment the camera turns toward the closet or
+      // stands up and walks into a new area, because THAT'S the first time
+      // those specific textures actually get uploaded. initTexture() is
+      // three.js's dedicated API for forcing that upload ahead of time —
+      // this walks every material actually in the room and forces all of
+      // their texture slots through it here, on the loading screen, instead
+      // of on whichever frame first looks their way.
+      const TEXTURE_SLOTS = [
+        "map", "normalMap", "roughnessMap", "metalnessMap", "aoMap",
+        "emissiveMap", "alphaMap", "bumpMap", "displacementMap",
+        "lightMap", "specularMap", "envMap", "clearcoatMap",
+        "clearcoatNormalMap", "clearcoatRoughnessMap", "sheenColorMap",
+        "sheenRoughnessMap", "transmissionMap", "thicknessMap",
+      ];
+      const seenTextures = new Set();
+      scene.traverse((obj) => {
+        if (!obj.isMesh || !obj.material) return;
+        const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+        materials.forEach((mat) => {
+          if (!mat) return;
+          TEXTURE_SLOTS.forEach((slot) => {
+            const tex = mat[slot];
+            if (tex && tex.isTexture && !seenTextures.has(tex)) {
+              seenTextures.add(tex);
+              renderer.initTexture(tex);
+            }
+          });
+        });
+      });
+      console.info(`precompile: uploaded ${seenTextures.size} texture(s) to the GPU ahead of first render.`);
     });
 
     document.getElementById("loading-screen").classList.add("hidden");
@@ -2512,6 +2600,29 @@ function animate() {
       }
     }
   }
+
+  // ambient smoke wisp — always running, no gating on viewState, since it's
+  // just a handful of sprites and cheap regardless of what else the camera
+  // is doing (see "ambient smoke wisp" wiring for the particle shape)
+  modelSmokeParticles.forEach((p) => {
+    p.age += delta;
+    if (p.age >= p.life) {
+      p.age = 0;
+      p.life = 2.6 + Math.random() * 1.6;
+      p.wobblePhase = Math.random() * Math.PI * 2;
+      p.driftAngle = Math.random() * Math.PI * 2;
+    }
+    const frac = p.age / p.life;
+    const wobble = Math.sin(p.wobblePhase + frac * Math.PI * 3) * SMOKE_DRIFT * frac;
+    p.sprite.position.set(
+      p.origin.x + Math.cos(p.driftAngle) * wobble,
+      p.origin.y + SMOKE_RISE * frac,
+      p.origin.z + Math.sin(p.driftAngle) * wobble
+    );
+    const scale = SMOKE_BASE_SIZE * (0.6 + frac * 1.8);
+    p.sprite.scale.set(scale, scale, 1);
+    p.sprite.material.opacity = Math.sin(Math.PI * Math.min(1, frac * 1.15)) * SMOKE_PEAK_OPACITY;
+  });
 
   if (camTween) {
     // camera is fully hand-driven during a zoom transition — OrbitControls
