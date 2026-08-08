@@ -8,11 +8,11 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 // local import (and on the <script src="js/main.js"> tag in index.html)
 // whenever you push a real change, so phones are forced to re-fetch
 // instead of serving what they already have cached.
-import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-07zm";
-import { loadRoomModel } from "./loadModel.js?v=2026-08-07zm";
-import { getArtCanvas, getArtTexture, makeSmokeSpriteTexture } from "./textures.js?v=2026-08-07zm";
-import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-07zm";
-import { applyBakedLook } from "./bakedLook.js?v=2026-08-07zm";
+import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-07zp";
+import { loadRoomModel } from "./loadModel.js?v=2026-08-07zp";
+import { getArtCanvas, getArtTexture, makeSmokeSpriteTexture } from "./textures.js?v=2026-08-07zp";
+import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-07zp";
+import { applyBakedLook } from "./bakedLook.js?v=2026-08-07zp";
 
 // ---------------------------------------------------------------- renderer
 const canvas = document.getElementById("scene");
@@ -910,7 +910,37 @@ loadRoomModel((progress) => {
         return;
       }
       jointNode.updateWorldMatrix(true, false);
-      const origin = jointNode.getWorldPosition(new THREE.Vector3());
+      const pivot = jointNode.getWorldPosition(new THREE.Vector3());
+
+      // "joint" itself is just a rigging pivot sitting near where it's held
+      // between the fingers, not a useful smoke origin on its own — that's
+      // what put the smoke up by the hand instead of the burning tip. The
+      // actual mesh is a couple of levels down; grab it and use whichever
+      // end of ITS geometry sits farthest from that pivot as the exposed,
+      // burning tip (the near end is the one still tucked in the fingers).
+      let jointMesh = null;
+      jointNode.traverse((obj) => {
+        if (obj.isMesh && !jointMesh) jointMesh = obj;
+      });
+      const origin = pivot.clone();
+      if (jointMesh) {
+        jointMesh.geometry.computeBoundingBox();
+        const box = jointMesh.geometry.boundingBox;
+        const size = box.getSize(new THREE.Vector3());
+        // the longest local axis is the cylinder's length (filter-to-tip);
+        // the other two are just its thin radius
+        const axisKey = size.x >= size.y && size.x >= size.z ? "x" : size.y >= size.z ? "y" : "z";
+        const endA = new THREE.Vector3();
+        const endB = new THREE.Vector3();
+        endA[axisKey] = box.min[axisKey];
+        endB[axisKey] = box.max[axisKey];
+        jointMesh.updateWorldMatrix(true, false);
+        endA.applyMatrix4(jointMesh.matrixWorld);
+        endB.applyMatrix4(jointMesh.matrixWorld);
+        origin.copy(endA.distanceTo(pivot) >= endB.distanceTo(pivot) ? endA : endB);
+      } else {
+        console.warn("ambient smoke wisp: no mesh found under \"joint\" — falling back to its own pivot position.");
+      }
       origin.y += 0.02; // starts just above the joint's own geometry, not inside it
 
       const smokeTexture = makeSmokeSpriteTexture();
