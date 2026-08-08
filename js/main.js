@@ -9,12 +9,12 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 // whenever you push a real change, so phones are forced to re-fetch
 // instead of serving what they already have cached.
 import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-08ap";
-import { loadRoomModel } from "./loadModel.js?v=2026-08-08ap";
+import { loadRoomModel } from "./loadModel.js?v=2026-08-08au";
 import { getArtCanvas, getArtTexture, makeSmokeSpriteTexture, makeDustMoteTexture } from "./textures.js?v=2026-08-08ap";
 import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-08ap";
 import { applyBakedLook } from "./bakedLook.js?v=2026-08-08ar";
-import { getDesktopScreenTexture, handleDesktopScreenClick } from "./desktopScreen.js?v=2026-08-08ap";
-import { getPhoneScreenTexture, handlePhoneScreenClick } from "./phoneScreen.js?v=2026-08-08ap";
+import { getDesktopScreenTexture, handleDesktopScreenClick } from "./desktopScreen.js?v=2026-08-08av";
+import { getPhoneScreenTexture, handlePhoneScreenClick } from "./phoneScreen.js?v=2026-08-08av";
 
 // ---------------------------------------------------------------- renderer
 const canvas = document.getElementById("scene");

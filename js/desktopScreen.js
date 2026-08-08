@@ -1,5 +1,5 @@
 import { ABOUT_ME_CONTENT, PALETTE } from "./data.js?v=2026-08-08ap";
-import { createInteractiveScreen } from "./screenCanvas.js?v=2026-08-08ap";
+import { createInteractiveScreen } from "./screenCanvas.js?v=2026-08-08av";
 
 // The desk computer's screen mesh gets its OWN CanvasTexture (built here)
 // instead of showing whatever blank/placeholder material the model came
@@ -8,12 +8,17 @@ import { createInteractiveScreen } from "./screenCanvas.js?v=2026-08-08ap";
 //
 // See js/screenCanvas.js for why every draw pass goes through
 // beginFrame()/commit() and why clicks get converted through pickHitbox()
-// instead of straight UV math — short version: this model's screen quads
-// have their UV transposed, confirmed from an actual screenshot, and that
-// module cancels it out so this file can just draw a normal, right-way-up
-// desktop without thinking about it.
+// instead of straight UV math. The screen mesh's UVs were retopo'd in
+// Blender to map this texture cleanly (no rotation needed), but the UV
+// island runs edge-to-edge on this texture — texture filtering can sample
+// a hair past that edge and pick up whatever's at the opposite edge, which
+// reads as a thin distorted/bleeding line right at the screen's border.
+// BORDER below insets all real content by a safe margin filled with a
+// solid bezel color, so any of that edge-sampling bleed lands on a flat
+// color instead of on drawn detail.
 const WIDTH = 1024;
 const HEIGHT = 640;
+const BORDER = 14;
 
 const screen = createInteractiveScreen(WIDTH, HEIGHT);
 const ctx = screen.ctx;
@@ -268,6 +273,24 @@ function drawBrowserWindow() {
 
 function draw() {
   screen.beginFrame();
+
+  // full-bleed bezel-safe fill first, THEN everything real gets drawn
+  // inset by BORDER on every side — see the BORDER comment above. The
+  // inset content is proportionally scaled to still fill exactly
+  // WIDTH x HEIGHT of virtual space, so every drawing function below
+  // (and every screen.addHitbox() call inside them) needs no changes —
+  // addHitbox() reads the active transform itself, so clicks still line
+  // up with whatever actually ends up on screen.
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#14121a";
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  ctx.beginPath();
+  ctx.rect(BORDER, BORDER, WIDTH - BORDER * 2, HEIGHT - BORDER * 2);
+  ctx.clip();
+  ctx.translate(BORDER, BORDER);
+  ctx.scale((WIDTH - BORDER * 2) / WIDTH, (HEIGHT - BORDER * 2) / HEIGHT);
+
   drawWallpaper();
   if (windowOpen) {
     drawBrowserWindow();
@@ -275,6 +298,8 @@ function draw() {
     drawDesktopIcon();
   }
   drawTaskbar();
+
+  ctx.restore();
   screen.commit();
 }
 
