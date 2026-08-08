@@ -1,5 +1,5 @@
-import { CONTACT_FORM_CONTENT, PALETTE } from "./data.js?v=2026-08-08ao";
-import { createInteractiveScreen } from "./screenCanvas.js?v=2026-08-08ao";
+import { CONTACT_FORM_CONTENT, PALETTE } from "./data.js?v=2026-08-08ap";
+import { createInteractiveScreen } from "./screenCanvas.js?v=2026-08-08ap";
 
 // The phone's screen mesh gets a mockup of the real "Commission
 // Application" form from toefu888.com/contact. There's no real text-input

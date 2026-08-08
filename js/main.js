@@ -8,13 +8,13 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 // local import (and on the <script src="js/main.js"> tag in index.html)
 // whenever you push a real change, so phones are forced to re-fetch
 // instead of serving what they already have cached.
-import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-08ao";
-import { loadRoomModel } from "./loadModel.js?v=2026-08-08ao";
-import { getArtCanvas, getArtTexture, makeSmokeSpriteTexture, makeDustMoteTexture } from "./textures.js?v=2026-08-08ao";
-import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-08ao";
-import { applyBakedLook } from "./bakedLook.js?v=2026-08-08ao";
-import { getDesktopScreenTexture, handleDesktopScreenClick } from "./desktopScreen.js?v=2026-08-08ao";
-import { getPhoneScreenTexture, handlePhoneScreenClick } from "./phoneScreen.js?v=2026-08-08ao";
+import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-08ap";
+import { loadRoomModel } from "./loadModel.js?v=2026-08-08ap";
+import { getArtCanvas, getArtTexture, makeSmokeSpriteTexture, makeDustMoteTexture } from "./textures.js?v=2026-08-08ap";
+import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-08ap";
+import { applyBakedLook } from "./bakedLook.js?v=2026-08-08ar";
+import { getDesktopScreenTexture, handleDesktopScreenClick } from "./desktopScreen.js?v=2026-08-08ap";
+import { getPhoneScreenTexture, handlePhoneScreenClick } from "./phoneScreen.js?v=2026-08-08ap";
 
 // ---------------------------------------------------------------- renderer
 const canvas = document.getElementById("scene");
@@ -1190,10 +1190,58 @@ loadRoomModel((progress) => {
       // was confirmed safe before this was added.
     });
 
-    document.getElementById("loading-screen").classList.add("hidden");
+    // Camera needs to be in its REAL starting position before the texture
+    // preload just below can know what's actually about to be on screen —
+    // run this before hiding the loading screen (not after), so there's no
+    // gap where the room is visible with the wrong pre-intro camera framing.
     safeStep("seated intro", () => {
       if (!tryRestoreViewState()) startSeatedIntro();
     });
+
+    // The shader precompile above only forces GPU *program* compilation —
+    // actual texture uploads stay lazy (see the comment above it: forcing
+    // every texture up front blew past mobile GPU memory budgets and
+    // crashed the tab). That means whatever's on screen the instant the
+    // loading screen lifts still pays a real one-time upload cost per
+    // texture the first time it's actually drawn — on a mobile GPU that's
+    // the "laggy first few seconds," as the backlog for the STARTING view
+    // gets paid off in real time. Scoped here strictly to what the real,
+    // final camera frustum can currently see — a small fraction of the
+    // room's 150+ textures, not "every mesh" like the reverted attempt —
+    // so it shouldn't reintroduce that memory-budget crash while still
+    // eliminating the stutter for exactly what's visible on first paint.
+    safeStep("preload starting-view textures", () => {
+      camera.updateMatrixWorld();
+      const frustum = new THREE.Frustum();
+      const projScreenMatrix = new THREE.Matrix4().multiplyMatrices(
+        camera.projectionMatrix,
+        camera.matrixWorldInverse
+      );
+      frustum.setFromProjectionMatrix(projScreenMatrix);
+
+      const seenTextures = new Set();
+      const mapSlots = ["map", "normalMap", "roughnessMap", "metalnessMap", "aoMap", "emissiveMap", "alphaMap"];
+      scene.traverse((obj) => {
+        if (!obj.isMesh || !obj.geometry) return;
+        if (!obj.geometry.boundingSphere) obj.geometry.computeBoundingSphere();
+        if (!obj.geometry.boundingSphere) return;
+        const sphere = obj.geometry.boundingSphere.clone().applyMatrix4(obj.matrixWorld);
+        if (!frustum.intersectsSphere(sphere)) return;
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        mats.forEach((m) => {
+          if (!m) return;
+          mapSlots.forEach((slot) => {
+            const tex = m[slot];
+            if (tex && !seenTextures.has(tex)) {
+              seenTextures.add(tex);
+              renderer.initTexture(tex);
+            }
+          });
+        });
+      });
+    });
+
+    document.getElementById("loading-screen").classList.add("hidden");
 
     // Only start saving once the model has actually finished loading and
     // a real (restored-or-fresh) view is in place — registering this at

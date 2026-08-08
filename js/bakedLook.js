@@ -12,6 +12,13 @@ import * as THREE from "three";
 // show up.
 const BAKED_MATERIAL_SUFFIX = "_baked";
 
+// Temporary: set to true to bring back the ORIGINAL pre-fix hair render
+// (plain alpha blend, no alphaTest/alphaToCoverage cutout, no soft-edge
+// overlay pass) so it can be compared side by side with the fixed version
+// below. This is exactly what hair looked like before the streaking fix —
+// flip back to false to restore the fix.
+const HAIR_USE_ORIGINAL_STREAKY_LOOK = true;
+
 /**
  * Swaps every "_baked" material in the model for an unlit MeshBasicMaterial
  * showing the same baked texture — the actual "unlit, lighting is printed
@@ -74,7 +81,7 @@ export function applyBakedLook(model) {
       // instead of a hard yes/no per pixel — that's what gets the soft edge
       // back without reopening the streaking. Needs the renderer's
       // antialias:true (already on) to actually do anything.
-      const isHairCard = /hair/i.test(obj.name);
+      const isHairCard = !HAIR_USE_ORIGINAL_STREAKY_LOOK && /hair/i.test(obj.name);
 
       // Lowered from 0.5, then again from 0.32 — still reading "too light
       // and too crispy" on mobile at 0.32, so down again. A high alphaTest
@@ -112,7 +119,7 @@ export function applyBakedLook(model) {
       obj.material = Array.isArray(obj.material) ? nextMaterials : nextMaterials[0];
       obj.castShadow = false;
       obj.receiveShadow = false;
-      if (/hair/i.test(obj.name)) hairCardMeshes.push(obj);
+      if (!HAIR_USE_ORIGINAL_STREAKY_LOOK && /hair/i.test(obj.name)) hairCardMeshes.push(obj);
     }
   });
 
