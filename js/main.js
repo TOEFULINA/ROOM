@@ -8,11 +8,11 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 // local import (and on the <script src="js/main.js"> tag in index.html)
 // whenever you push a real change, so phones are forced to re-fetch
 // instead of serving what they already have cached.
-import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-07zr";
-import { loadRoomModel } from "./loadModel.js?v=2026-08-07zr";
-import { getArtCanvas, getArtTexture, makeSmokeSpriteTexture } from "./textures.js?v=2026-08-07zr";
-import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-07zr";
-import { applyBakedLook } from "./bakedLook.js?v=2026-08-07zr";
+import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-08ad";
+import { loadRoomModel } from "./loadModel.js?v=2026-08-08ad";
+import { getArtCanvas, getArtTexture, makeSmokeSpriteTexture } from "./textures.js?v=2026-08-08ad";
+import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-08ad";
+import { applyBakedLook } from "./bakedLook.js?v=2026-08-08ad";
 
 // ---------------------------------------------------------------- renderer
 const canvas = document.getElementById("scene");
@@ -232,6 +232,16 @@ const bedframeMeshes = [];
 // shirts themselves slide along the rod. The crumpled tee sits on a shelf,
 // not the rod, so it keeps the plain per-item zoom below.
 const RACK_SHIRT_PATTERN = /^hanging_tee_shirt/i;
+// getLocalFrontAxis (below) just picks whichever axis is thinner and always
+// assumes the POSITIVE direction along it is the decorated/front side — true
+// for the original shirt exports, but the two shorts items (a different
+// source file entirely) turned out modeled with that convention backwards,
+// so the "turn to face camera" rotation was swinging their back/inside
+// toward the viewer instead. Resting/unselected view was never affected —
+// only the deliberate turn-to-face-camera math, which is exactly why this
+// only needed a sign flip for these two items rather than any change to
+// their actual geometry or rest position.
+const FRONT_AXIS_FLIP_PATTERN = /^hanging_tee_shirt_shorts/i;
 // the button-down long-sleeve shirt on its own hook — hidden per explicit
 // request now that the rack is the condensed-mesh multi-design tee system;
 // dropped from RACK_SHIRT_PATTERN above too so it doesn't take up a rack
@@ -546,7 +556,8 @@ loadRoomModel((progress) => {
           frontWorldDir.normalize();
           const yAxis = new THREE.Vector3(0, 1, 0);
           modelRackShirts.forEach((entry) => {
-            const localAxis = getLocalFrontAxis(entry.group);
+            const localAxis = getLocalFrontAxis(entry.group).clone();
+            if (FRONT_AXIS_FLIP_PATTERN.test(entry.group.name)) localAxis.negate();
             const restWorldDir = localAxis.clone().applyQuaternion(entry.baseQuat).normalize();
             // signed yaw between where the shirt currently faces and where
             // it needs to face, measured in the horizontal (XZ) plane
@@ -912,12 +923,13 @@ loadRoomModel((progress) => {
       jointNode.updateWorldMatrix(true, false);
       const pivot = jointNode.getWorldPosition(new THREE.Vector3());
 
-      // "joint" itself is just a rigging pivot sitting near where it's held
-      // between the fingers, not a useful smoke origin on its own — that's
-      // what put the smoke up by the hand instead of the burning tip. The
-      // actual mesh is a couple of levels down; grab it and use whichever
-      // end of ITS geometry sits farthest from that pivot as the exposed,
-      // burning tip (the near end is the one still tucked in the fingers).
+      // "joint" itself is just a rigging pivot and doesn't sit on the mesh
+      // at all — its world position is off to the side of the cylinder by
+      // roughly the cylinder's own length. Confirmed (via two debug marker
+      // spheres, since removed) that the mesh's NEAREST bounding-box end to
+      // that pivot is the correct burning-tip origin here — "farther"
+      // looked right on paper but landed at the hand; "nearer" is what's
+      // actually confirmed correct on screen.
       let jointMesh = null;
       jointNode.traverse((obj) => {
         if (obj.isMesh && !jointMesh) jointMesh = obj;
@@ -927,17 +939,18 @@ loadRoomModel((progress) => {
         jointMesh.geometry.computeBoundingBox();
         const box = jointMesh.geometry.boundingBox;
         const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
         // the longest local axis is the cylinder's length (filter-to-tip);
         // the other two are just its thin radius
         const axisKey = size.x >= size.y && size.x >= size.z ? "x" : size.y >= size.z ? "y" : "z";
-        const endA = new THREE.Vector3();
-        const endB = new THREE.Vector3();
+        const endA = center.clone();
+        const endB = center.clone();
         endA[axisKey] = box.min[axisKey];
         endB[axisKey] = box.max[axisKey];
         jointMesh.updateWorldMatrix(true, false);
         endA.applyMatrix4(jointMesh.matrixWorld);
         endB.applyMatrix4(jointMesh.matrixWorld);
-        origin.copy(endA.distanceTo(pivot) >= endB.distanceTo(pivot) ? endA : endB);
+        origin.copy(endA.distanceTo(pivot) <= endB.distanceTo(pivot) ? endA : endB);
       } else {
         console.warn("ambient smoke wisp: no mesh found under \"joint\" — falling back to its own pivot position.");
       }
@@ -1027,7 +1040,22 @@ loadRoomModel((progress) => {
     });
 
     document.getElementById("loading-screen").classList.add("hidden");
-    safeStep("seated intro", startSeatedIntro);
+    safeStep("seated intro", () => {
+      if (!tryRestoreViewState()) startSeatedIntro();
+    });
+
+    // Only start saving once the model has actually finished loading and
+    // a real (restored-or-fresh) view is in place — registering this at
+    // module top-level instead would let the 2s timer fire on whatever
+    // junk camera position exists before the model/intro even set up a
+    // real one, and that junk could then get "restored" on the next reload.
+    safeStep("view persistence", () => {
+      setInterval(saveViewState, 2000);
+      window.addEventListener("pagehide", saveViewState);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") saveViewState();
+      });
+    });
   })
   .catch((err) => {
     console.error("Failed to load models/room.glb:", err);
@@ -2220,6 +2248,80 @@ function startObjectTween(obj, toPos, toQuat, duration, onDone) {
   });
 }
 
+// ---------------------------------------------------------------- view persistence (survive an accidental reload)
+// A page reload — mobile browsers reloading a backgrounded tab, someone
+// bumping F5, whatever — used to always dump you back into the chair with
+// the whole wake-up sequence again, even if you'd been up and walking
+// around for 10 minutes. sessionStorage survives a reload of the SAME tab
+// (it only clears when the tab/window is actually closed), so saving the
+// live camera position there and checking for it before running
+// startSeatedIntro means a reload picks up exactly where you left off
+// instead of restarting. Closing the tab and opening a fresh one still
+// starts the intro from scratch, same as visiting for the first time.
+const VIEW_STATE_KEY = "toefu-room-view-v1";
+
+function saveViewState() {
+  // only free-roam is meaningful to restore into — mid-tween, mid-focus
+  // (a shirt pulled forward, the vinyl crate open, etc.) has no sensible
+  // "resume exactly here" state, so those are just skipped rather than
+  // saved half-finished.
+  if (viewState !== "free") return;
+  try {
+    sessionStorage.setItem(
+      VIEW_STATE_KEY,
+      JSON.stringify({
+        px: camera.position.x,
+        py: camera.position.y,
+        pz: camera.position.z,
+        tx: controls.target.x,
+        ty: controls.target.y,
+        tz: controls.target.z,
+        fov: camera.fov,
+      })
+    );
+  } catch (err) {
+    // sessionStorage can throw in locked-down/private-browsing contexts —
+    // resuming exactly where you left off just isn't available there, the
+    // normal wake-up intro still works fine as a fallback
+    console.warn("view persistence: couldn't save —", err);
+  }
+}
+
+// Returns true if a saved view was found and restored (caller should skip
+// startSeatedIntro entirely in that case), false if there was nothing to
+// restore (first visit, a new tab, private browsing, etc.) — normal
+// wake-up intro runs exactly as before.
+function tryRestoreViewState() {
+  let saved;
+  try {
+    const raw = sessionStorage.getItem(VIEW_STATE_KEY);
+    if (!raw) return false;
+    saved = JSON.parse(raw);
+  } catch (err) {
+    return false;
+  }
+  if (!saved || typeof saved.px !== "number") return false;
+
+  camera.position.set(saved.px, saved.py, saved.pz);
+  controls.target.set(saved.tx, saved.ty, saved.tz);
+  camera.fov = saved.fov || camera.fov;
+  camera.updateProjectionMatrix();
+  camera.lookAt(controls.target);
+  syncLookAnglesFromTarget();
+
+  viewState = "free";
+  controls.enabled = true;
+  // skip the wake-up/stand-up one-shot subtitles too — replaying "hey you,
+  // you're finally awake" after a reload mid-session would be strange when
+  // nothing about being newly awake is actually true anymore
+  wakeSubtitlesShown = true;
+  standUpSubtitleShown = true;
+  ensureEyesOpen();
+  document.getElementById("intro-overlay").classList.add("hidden");
+  setMobileMoveControlsVisible(true);
+  return true;
+}
+
 // ---------------------------------------------------------------- intro / start menu
 // The site starts already seated — no separate "wake up" choice, and no
 // blur. As soon as the model + chair are ready (see startSeatedIntro,
@@ -2739,9 +2841,20 @@ function animate() {
         const restGap = Math.abs(entry.axisValue - selectedEntry.axisValue);
         const requiredGap = selectedHalfWidth + entry.restHalfWidth + NEIGHBOR_MARGIN;
         const immediatePush = Math.max(0, requiredGap - restGap);
-        // dist 1 gets the full push; dist 2+ cascades a shrinking fraction
-        // of it so shirts further down the rod still make a little room
-        const falloff = dist === 1 ? 1 : Math.max(0, 1 - (dist - 1) * 0.5);
+        // dist 1 gets the full push; farther ones cascade a shrinking
+        // fraction of it so the whole rack fans out smoothly. This used to
+        // hit exactly zero at dist 3 and stay there — fine back when the
+        // rack only had 5 items (nothing was ever more than 2 slots from
+        // the middle), but with 7 items now, an end item's immediate
+        // neighbors could still be sitting with NO clearance at all,
+        // letting the enlarged/turned selection visually overlap them —
+        // which is exactly what reads as "the highlighted one jumping to
+        // the wrong item," since a click landing on that overlapped
+        // neighbor selects IT, not whatever's visually on top. Scaling the
+        // falloff to the actual rack length instead of a fixed cutoff means
+        // every item gets at least some clearance, however far out it is.
+        const maxDist = Math.max(1, modelRackShirts.length - 1);
+        const falloff = Math.max(0, 1 - (dist - 1) / maxDist);
         neighborPushTarget = dir * immediatePush * falloff;
       }
       entry.neighborPushBlend += (neighborPushTarget - entry.neighborPushBlend) * 0.08;
