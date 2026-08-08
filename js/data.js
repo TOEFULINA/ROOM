@@ -127,19 +127,19 @@ export const CANVAS_DESIGNS = {
 // here in the order you want them to appear.
 export const PAPER_ILLUSTRATIONS = {
   "paper_001_mesh_n3d": [
-    { image: "images/illustrations/1.jpg?v=2026-08-07zp" },
-    { image: "images/illustrations/2.jpg?v=2026-08-07zp" },
-    { image: "images/illustrations/3.jpg?v=2026-08-07zp" },
-    { image: "images/illustrations/4.jpg?v=2026-08-07zp" },
-    { image: "images/illustrations/5.jpg?v=2026-08-07zp" },
-    { image: "images/illustrations/6.jpg?v=2026-08-07zp" },
-    { image: "images/illustrations/7.jpg?v=2026-08-07zp" },
-    { image: "images/illustrations/8.jpg?v=2026-08-07zp" },
-    { image: "images/illustrations/9.jpg?v=2026-08-07zp" },
-    { image: "images/illustrations/10.jpg?v=2026-08-07zp" },
-    { image: "images/illustrations/11.jpg?v=2026-08-07zp" },
-    { image: "images/illustrations/12.jpg?v=2026-08-07zp" },
-    { image: "images/illustrations/13.jpg?v=2026-08-07zp" },
+    { image: "images/illustrations/1.jpg?v=2026-08-07zr" },
+    { image: "images/illustrations/2.jpg?v=2026-08-07zr" },
+    { image: "images/illustrations/3.jpg?v=2026-08-07zr" },
+    { image: "images/illustrations/4.jpg?v=2026-08-07zr" },
+    { image: "images/illustrations/5.jpg?v=2026-08-07zr" },
+    { image: "images/illustrations/6.jpg?v=2026-08-07zr" },
+    { image: "images/illustrations/7.jpg?v=2026-08-07zr" },
+    { image: "images/illustrations/8.jpg?v=2026-08-07zr" },
+    { image: "images/illustrations/9.jpg?v=2026-08-07zr" },
+    { image: "images/illustrations/10.jpg?v=2026-08-07zr" },
+    { image: "images/illustrations/11.jpg?v=2026-08-07zr" },
+    { image: "images/illustrations/12.jpg?v=2026-08-07zr" },
+    { image: "images/illustrations/13.jpg?v=2026-08-07zr" },
   ],
 };
 

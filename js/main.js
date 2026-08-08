@@ -8,11 +8,11 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 // local import (and on the <script src="js/main.js"> tag in index.html)
 // whenever you push a real change, so phones are forced to re-fetch
 // instead of serving what they already have cached.
-import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-07zp";
-import { loadRoomModel } from "./loadModel.js?v=2026-08-07zp";
-import { getArtCanvas, getArtTexture, makeSmokeSpriteTexture } from "./textures.js?v=2026-08-07zp";
-import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-07zp";
-import { applyBakedLook } from "./bakedLook.js?v=2026-08-07zp";
+import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-07zr";
+import { loadRoomModel } from "./loadModel.js?v=2026-08-07zr";
+import { getArtCanvas, getArtTexture, makeSmokeSpriteTexture } from "./textures.js?v=2026-08-07zr";
+import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-07zr";
+import { applyBakedLook } from "./bakedLook.js?v=2026-08-07zr";
 
 // ---------------------------------------------------------------- renderer
 const canvas = document.getElementById("scene");
@@ -1015,44 +1015,15 @@ loadRoomModel((progress) => {
       renderer.compile(scene, camera);
       culledMeshes.forEach((obj) => { obj.frustumCulled = true; });
 
-      // renderer.compile() above only gets the SHADER PROGRAMS ready — it
-      // does not touch the GPU texture upload (decode + glTexImage2D) for
-      // each material's maps, which three.js still defers to the first
-      // actual render() call that draws it. On mobile GPUs that upload is
-      // the expensive half, not the shader compile, and with 140+ baked
-      // webp textures in this room (the closet's shirts/vinyl/canvases
-      // especially, since those bakes are large and numerous) that's
-      // exactly the still-there stutter: fine while just sitting looking at
-      // plain walls, laggy the moment the camera turns toward the closet or
-      // stands up and walks into a new area, because THAT'S the first time
-      // those specific textures actually get uploaded. initTexture() is
-      // three.js's dedicated API for forcing that upload ahead of time —
-      // this walks every material actually in the room and forces all of
-      // their texture slots through it here, on the loading screen, instead
-      // of on whichever frame first looks their way.
-      const TEXTURE_SLOTS = [
-        "map", "normalMap", "roughnessMap", "metalnessMap", "aoMap",
-        "emissiveMap", "alphaMap", "bumpMap", "displacementMap",
-        "lightMap", "specularMap", "envMap", "clearcoatMap",
-        "clearcoatNormalMap", "clearcoatRoughnessMap", "sheenColorMap",
-        "sheenRoughnessMap", "transmissionMap", "thicknessMap",
-      ];
-      const seenTextures = new Set();
-      scene.traverse((obj) => {
-        if (!obj.isMesh || !obj.material) return;
-        const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
-        materials.forEach((mat) => {
-          if (!mat) return;
-          TEXTURE_SLOTS.forEach((slot) => {
-            const tex = mat[slot];
-            if (tex && tex.isTexture && !seenTextures.has(tex)) {
-              seenTextures.add(tex);
-              renderer.initTexture(tex);
-            }
-          });
-        });
-      });
-      console.info(`precompile: uploaded ${seenTextures.size} texture(s) to the GPU ahead of first render.`);
+      // Tried also forcing every material's texture through
+      // renderer.initTexture() here, to get the GPU upload (not just the
+      // shader compile) done ahead of time too — reverted. Uploading 150+
+      // textures to the GPU synchronously, all at once, right as the
+      // loading screen finishes is exactly the kind of thing that can blow
+      // past a mobile GPU's memory budget and crash the tab, which lines up
+      // with the "loads to 100%, then errors out" report on mobile right
+      // after this shipped. Back to just the shader precompile above, which
+      // was confirmed safe before this was added.
     });
 
     document.getElementById("loading-screen").classList.add("hidden");
@@ -2633,26 +2604,35 @@ function animate() {
 
   // ambient smoke wisp — always running, no gating on viewState, since it's
   // just a handful of sprites and cheap regardless of what else the camera
-  // is doing (see "ambient smoke wisp" wiring for the particle shape)
-  modelSmokeParticles.forEach((p) => {
-    p.age += delta;
-    if (p.age >= p.life) {
-      p.age = 0;
-      p.life = 2.6 + Math.random() * 1.6;
-      p.wobblePhase = Math.random() * Math.PI * 2;
-      p.driftAngle = Math.random() * Math.PI * 2;
-    }
-    const frac = p.age / p.life;
-    const wobble = Math.sin(p.wobblePhase + frac * Math.PI * 3) * SMOKE_DRIFT * frac;
-    p.sprite.position.set(
-      p.origin.x + Math.cos(p.driftAngle) * wobble,
-      p.origin.y + SMOKE_RISE * frac,
-      p.origin.z + Math.sin(p.driftAngle) * wobble
-    );
-    const scale = SMOKE_BASE_SIZE * (0.6 + frac * 1.8);
-    p.sprite.scale.set(scale, scale, 1);
-    p.sprite.material.opacity = Math.sin(Math.PI * Math.min(1, frac * 1.15)) * SMOKE_PEAK_OPACITY;
-  });
+  // is doing (see "ambient smoke wisp" wiring for the particle shape).
+  // Wrapped in try/catch because this runs unguarded every single frame —
+  // unlike the load-time setup (wrapped in safeStep), a throw in here isn't
+  // caught by anything and would kill every frame after it, not just this
+  // one feature.
+  try {
+    modelSmokeParticles.forEach((p) => {
+      p.age += delta;
+      if (p.age >= p.life) {
+        p.age = 0;
+        p.life = 2.6 + Math.random() * 1.6;
+        p.wobblePhase = Math.random() * Math.PI * 2;
+        p.driftAngle = Math.random() * Math.PI * 2;
+      }
+      const frac = p.age / p.life;
+      const wobble = Math.sin(p.wobblePhase + frac * Math.PI * 3) * SMOKE_DRIFT * frac;
+      p.sprite.position.set(
+        p.origin.x + Math.cos(p.driftAngle) * wobble,
+        p.origin.y + SMOKE_RISE * frac,
+        p.origin.z + Math.sin(p.driftAngle) * wobble
+      );
+      const scale = SMOKE_BASE_SIZE * (0.6 + frac * 1.8);
+      p.sprite.scale.set(scale, scale, 1);
+      p.sprite.material.opacity = Math.sin(Math.PI * Math.min(1, frac * 1.15)) * SMOKE_PEAK_OPACITY;
+    });
+  } catch (err) {
+    console.error("ambient smoke wisp: per-frame update failed, disabling —", err);
+    modelSmokeParticles.length = 0;
+  }
 
   if (camTween) {
     // camera is fully hand-driven during a zoom transition — OrbitControls
