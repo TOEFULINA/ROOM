@@ -1,5 +1,5 @@
-import { ABOUT_ME_CONTENT, PALETTE } from "./data.js?v=2026-08-08an";
-import { createInteractiveScreen } from "./screenCanvas.js?v=2026-08-08an";
+import { ABOUT_ME_CONTENT, PALETTE } from "./data.js?v=2026-08-08ao";
+import { createInteractiveScreen } from "./screenCanvas.js?v=2026-08-08ao";
 
 // The desk computer's screen mesh gets its OWN CanvasTexture (built here)
 // instead of showing whatever blank/placeholder material the model came

@@ -4,21 +4,27 @@ import * as THREE from "three";
 // onto a canvas and routes clicks back into it via the mesh's own raycast
 // UV (desk computer, phone).
 //
-// The desk computer's screen was the first one wired up, and a real
-// screenshot showed the model's screen quad has its UV laid out TRANSPOSED
-// relative to the "obvious" flat mapping: text drawn horizontally came back
-// rendering top-to-bottom, one letter per row, in the original left-to-right
-// order — the exact signature of a pure coordinate transpose (swap x/y, no
-// flip), confirmed from the actual render rather than guessed.
-//
-// Rather than fight that per-mesh inside every screen's own drawing code,
-// each screen draws into a normal "logical" canvas (sized however makes
-// sense for that screen's own layout) and this module transposes it once
-// into the real exported texture. Transpose is its own inverse, so composed
-// with the mesh's existing transpose the two cancel out and the logical
-// layout ends up displaying right-side up. Both the computer and phone
-// screens are assumed to share this same UV convention (same artist, same
-// export pipeline) until a real screenshot of the phone proves otherwise.
+// The desk computer's screen was the first one wired up, and three rounds of
+// real screenshots nailed down exactly what this model's screen quad does to
+// whatever texture it's given:
+//   1. Before any correction: text drawn horizontally rendered top-to-bottom,
+//      one letter per row, in the original left-to-right order — AND each
+//      letter still read as a normal, non-mirrored letter. That combination
+//      (order preserved, no mirroring, 90° of turn) is only possible from a
+//      proper rotation, never a flip/transpose (a coordinate swap always
+//      mirrors chirality, which would make individual letters read
+//      backwards — it looked right at first glance but was the wrong model).
+//   2. A first attempt "fixed" this with a coordinate transpose (swap x/y).
+//      That undid the 90° turn but, because a transpose IS a mirror, it
+//      introduced backwards/upside-down letters ("/" rendering as "\", etc)
+//      that weren't there in (1) — direct confirmation the real bug is a
+//      rotation, not a reflection.
+// The correction below is a genuine 90°, non-mirroring rotation of the
+// logical canvas before it becomes the texture — composed with the mesh's
+// own 90° rotation, the two cancel out and the logical layout displays
+// right-side up with no mirroring. Both the computer and phone screens are
+// assumed to share this same UV convention (same artist, same export
+// pipeline) until a real screenshot of the phone proves otherwise.
 export function createInteractiveScreen(logicalWidth, logicalHeight) {
   const canvas = document.createElement("canvas");
   canvas.width = logicalWidth;
@@ -49,33 +55,30 @@ export function createInteractiveScreen(logicalWidth, logicalHeight) {
   }
 
   // Call once at the end of every draw pass, after all drawing into `ctx`
-  // is done — copies the finished logical canvas into the real texture
-  // (transposed) and flags it for GPU re-upload.
+  // is done — copies the finished logical canvas into the real texture,
+  // rotated 90° to cancel the mesh's own 90° turn, and flags it for GPU
+  // re-upload.
   function commit() {
     texCtx.setTransform(1, 0, 0, 1, 0, 0);
     texCtx.clearRect(0, 0, texCanvas.width, texCanvas.height);
     // canvas transform (a,b,c,d,e,f) maps a source point (sx,sy) to
-    // (a*sx+c*sy+e, b*sx+d*sy+f); (0,1,1,0,0,0) maps (sx,sy) -> (sy,sx) —
-    // exactly a transpose. drawImage then just walks the source 1:1 through
-    // that transform.
-    texCtx.setTransform(0, 1, 1, 0, 0, 0);
+    // (a*sx+c*sy+e, b*sx+d*sy+f). (0,-1,1,0,0,W) maps (sx,sy) ->
+    // (sy, W-sx) — a proper 90° rotation (determinant = 0*0-(-1)*1 = 1,
+    // no mirroring), not the transpose this used to be.
+    texCtx.setTransform(0, -1, 1, 0, 0, canvas.width);
     texCtx.drawImage(canvas, 0, 0);
     texCtx.setTransform(1, 0, 0, 1, 0, 0);
     texture.needsUpdate = true;
   }
 
   // Converts a raycast UV hit into LOGICAL canvas pixel space and returns
-  // whatever hitbox (if any) the last commit() produced there. Inverts BOTH
-  // the texture's default flipY (three.js CanvasTexture convention: v=0 is
-  // the texture's bottom row) AND the transpose commit() applies above —
-  // commit() maps source(sx,sy) -> tex(sy,sx), i.e. tex(x,y) shows
-  // source(y,x), so recovering logical (sx,sy) from a texture-space hit
-  // means swapping x and y back.
+  // whatever hitbox (if any) the last commit() produced there — the inverse
+  // of the rotation commit() applies above, worked out algebraically rather
+  // than guessed (see module comment for how the rotation itself was
+  // determined from real screenshots).
   function pickHitbox(u, v) {
-    const texX = u * texCanvas.width;
-    const texY = (1 - v) * texCanvas.height;
-    const logicalX = texY;
-    const logicalY = texX;
+    const logicalX = v * canvas.width;
+    const logicalY = u * canvas.height;
     return hitboxes.find(
       (h) => logicalX >= h.x && logicalX <= h.x + h.w && logicalY >= h.y && logicalY <= h.y + h.h
     );

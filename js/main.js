@@ -8,13 +8,13 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 // local import (and on the <script src="js/main.js"> tag in index.html)
 // whenever you push a real change, so phones are forced to re-fetch
 // instead of serving what they already have cached.
-import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-08an";
-import { loadRoomModel } from "./loadModel.js?v=2026-08-08an";
-import { getArtCanvas, getArtTexture, makeSmokeSpriteTexture, makeDustMoteTexture } from "./textures.js?v=2026-08-08an";
-import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-08an";
-import { applyBakedLook } from "./bakedLook.js?v=2026-08-08an";
-import { getDesktopScreenTexture, handleDesktopScreenClick } from "./desktopScreen.js?v=2026-08-08an";
-import { getPhoneScreenTexture, handlePhoneScreenClick } from "./phoneScreen.js?v=2026-08-08an";
+import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-08ao";
+import { loadRoomModel } from "./loadModel.js?v=2026-08-08ao";
+import { getArtCanvas, getArtTexture, makeSmokeSpriteTexture, makeDustMoteTexture } from "./textures.js?v=2026-08-08ao";
+import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-08ao";
+import { applyBakedLook } from "./bakedLook.js?v=2026-08-08ao";
+import { getDesktopScreenTexture, handleDesktopScreenClick } from "./desktopScreen.js?v=2026-08-08ao";
+import { getPhoneScreenTexture, handlePhoneScreenClick } from "./phoneScreen.js?v=2026-08-08ao";
 
 // ---------------------------------------------------------------- renderer
 const canvas = document.getElementById("scene");
