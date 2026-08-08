@@ -8,11 +8,11 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 // local import (and on the <script src="js/main.js"> tag in index.html)
 // whenever you push a real change, so phones are forced to re-fetch
 // instead of serving what they already have cached.
-import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-08ad";
-import { loadRoomModel } from "./loadModel.js?v=2026-08-08ad";
-import { getArtCanvas, getArtTexture, makeSmokeSpriteTexture } from "./textures.js?v=2026-08-08ad";
-import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-08ad";
-import { applyBakedLook } from "./bakedLook.js?v=2026-08-08ad";
+import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-08ah";
+import { loadRoomModel } from "./loadModel.js?v=2026-08-08ah";
+import { getArtCanvas, getArtTexture, makeSmokeSpriteTexture } from "./textures.js?v=2026-08-08ah";
+import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-08ah";
+import { applyBakedLook } from "./bakedLook.js?v=2026-08-08ah";
 
 // ---------------------------------------------------------------- renderer
 const canvas = document.getElementById("scene");

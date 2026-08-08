@@ -76,18 +76,19 @@ export function applyBakedLook(model) {
       // antialias:true (already on) to actually do anything.
       const isHairCard = /hair/i.test(obj.name);
 
-      // Lowered from 0.5 — a high alphaTest throws away more of the strand's
-      // naturally feathered/thin pixels, which is what reads as a harsher,
-      // more solid-looking cutoff. Letting more of those thin pixels
-      // survive (then blended softly by the overlay pass below) is what
-      // makes the edges look finer and more see-through instead of a flat
-      // silhouette.
+      // Lowered from 0.5, then again from 0.32 — still reading "too light
+      // and too crispy" on mobile at 0.32, so down again. A high alphaTest
+      // throws away more of the strand's naturally feathered/thin pixels,
+      // which is what reads as a harsher, more solid-looking cutoff.
+      // Letting more of those thin pixels survive (then blended softly by
+      // the overlay pass below) is what makes the edges look finer and
+      // more see-through instead of a flat, bright-edged silhouette.
       const baked = new THREE.MeshBasicMaterial({
         name: mat.name,
         map: mat.map || null,
         color: mat.color,
         transparent: isHairCard ? false : mat.transparent,
-        alphaTest: isHairCard ? 0.32 : mat.alphaTest,
+        alphaTest: isHairCard ? 0.2 : mat.alphaTest,
         alphaToCoverage: isHairCard ? true : false,
         side: mat.side,
       });
@@ -135,14 +136,12 @@ export function applyBakedLook(model) {
       color: primary.color,
       side: primary.side,
       transparent: true,
-      // Was fully opaque (1) — the blended edge pixels landed just as
-      // solid as the alphaTest pass underneath, so the "soft edge" fix
-      // still read as a hard silhouette, just an antialiased one. Pulling
-      // this below 1 lets the thin, wispy edge pixels genuinely show some
-      // background through them instead of fully covering it, which is
-      // the actual "translucent hair" look rather than "hard edge with
-      // nicer antialiasing."
-      opacity: 0.72,
+      // Was fully opaque (1), then 0.72 — still reading "too light and too
+      // crispy" on mobile, so down again. Pulling this lower lets the
+      // thin, wispy edge pixels genuinely show more background through
+      // them instead of covering it, which is the actual "translucent
+      // hair" look rather than "hard edge with nicer antialiasing."
+      opacity: 0.55,
       depthWrite: false,
       depthTest: true,
     });
