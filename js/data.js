@@ -127,19 +127,19 @@ export const CANVAS_DESIGNS = {
 // here in the order you want them to appear.
 export const PAPER_ILLUSTRATIONS = {
   "paper_001_mesh_n3d": [
-    { image: "images/illustrations/1.jpg?v=2026-08-08ai" },
-    { image: "images/illustrations/2.jpg?v=2026-08-08ai" },
-    { image: "images/illustrations/3.jpg?v=2026-08-08ai" },
-    { image: "images/illustrations/4.jpg?v=2026-08-08ai" },
-    { image: "images/illustrations/5.jpg?v=2026-08-08ai" },
-    { image: "images/illustrations/6.jpg?v=2026-08-08ai" },
-    { image: "images/illustrations/7.jpg?v=2026-08-08ai" },
-    { image: "images/illustrations/8.jpg?v=2026-08-08ai" },
-    { image: "images/illustrations/9.jpg?v=2026-08-08ai" },
-    { image: "images/illustrations/10.jpg?v=2026-08-08ai" },
-    { image: "images/illustrations/11.jpg?v=2026-08-08ai" },
-    { image: "images/illustrations/12.jpg?v=2026-08-08ai" },
-    { image: "images/illustrations/13.jpg?v=2026-08-08ai" },
+    { image: "images/illustrations/1.jpg?v=2026-08-08al" },
+    { image: "images/illustrations/2.jpg?v=2026-08-08al" },
+    { image: "images/illustrations/3.jpg?v=2026-08-08al" },
+    { image: "images/illustrations/4.jpg?v=2026-08-08al" },
+    { image: "images/illustrations/5.jpg?v=2026-08-08al" },
+    { image: "images/illustrations/6.jpg?v=2026-08-08al" },
+    { image: "images/illustrations/7.jpg?v=2026-08-08al" },
+    { image: "images/illustrations/8.jpg?v=2026-08-08al" },
+    { image: "images/illustrations/9.jpg?v=2026-08-08al" },
+    { image: "images/illustrations/10.jpg?v=2026-08-08al" },
+    { image: "images/illustrations/11.jpg?v=2026-08-08al" },
+    { image: "images/illustrations/12.jpg?v=2026-08-08al" },
+    { image: "images/illustrations/13.jpg?v=2026-08-08al" },
   ],
 };
 
@@ -192,4 +192,46 @@ export const PALETTE = {
   accentWarm: "#ffce6b",
   accentCool: "#8ecae6",
   rug: "#f2ece2",
+};
+
+// Content shown on the desk computer's screen (see js/desktopScreen.js) —
+// a fake desktop with one clickable icon that opens a browser-styled window
+// mirroring the real "About Me" page on toefu888.com. Edit this to keep the
+// two in sync whenever the real site's about-me copy changes.
+export const ABOUT_ME_CONTENT = {
+  name: "LINA (TOEFU)",
+  tagline: "NYC-based visual artist",
+  location: "Manhattan, NY",
+  addressBar: "toefu888.com/about-me",
+  bio: [
+    "Hello! I am Lina, a NYC-based visual artist with almost 10 years of experience. I specialize in all things graphic — anywhere from illustration to action figures (and anything in between).",
+    "I am available for hire on a project-to-project basis or monthly contract.",
+    "Contact me for any business inquiries! Price and structure are negotiable per client. :)",
+  ],
+  links: [
+    { label: "Resume", url: "https://www.toefu888.com/_files/ugd/4ddd2b_957e41760be544e493c53f524993f088.pdf" },
+    { label: "Instagram", url: "http://instagram.com/toefulina" },
+    { label: "Twitter", url: "https://x.com/LUVsicHEXALOGY" },
+    { label: "LinkedIn", url: "https://www.linkedin.com/in/miuppa/" },
+    { label: "Full Site", url: "https://www.toefu888.com/about-me" },
+  ],
+};
+
+// Content shown on the phone's screen (see js/phoneScreen.js) — a mockup of
+// the real "Commission Application" form on toefu888.com/contact. There's
+// no real text-input system in this scene, so the fields render as a
+// preview only; tapping the form (or the Submit button) opens the actual
+// contact page in a new tab so someone can fill it out for real. Edit this
+// to keep it in sync whenever the real form's fields change.
+export const CONTACT_FORM_CONTENT = {
+  formUrl: "https://www.toefu888.com/contact",
+  heading: "COMMISSION APPLICATION",
+  fields: ["First Name", "Last Name", "Email", "Describe Your Commission", "Commission Type", "Ideal Due Date"],
+  submitLabel: "SUBMIT",
+  footnote: "I will get back 2 u ASAP!",
+  otherInquiries: "For other inquiries",
+  links: [
+    { label: "Instagram", url: "http://instagram.com/toefulina" },
+    { label: "Twitter", url: "https://x.com/LUVsicHEXALOGY" },
+  ],
 };

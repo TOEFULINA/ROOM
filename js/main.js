@@ -8,11 +8,13 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 // local import (and on the <script src="js/main.js"> tag in index.html)
 // whenever you push a real change, so phones are forced to re-fetch
 // instead of serving what they already have cached.
-import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-08ai";
-import { loadRoomModel } from "./loadModel.js?v=2026-08-08ai";
-import { getArtCanvas, getArtTexture, makeSmokeSpriteTexture } from "./textures.js?v=2026-08-08ai";
-import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-08ai";
-import { applyBakedLook } from "./bakedLook.js?v=2026-08-08ai";
+import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-08an";
+import { loadRoomModel } from "./loadModel.js?v=2026-08-08an";
+import { getArtCanvas, getArtTexture, makeSmokeSpriteTexture, makeDustMoteTexture } from "./textures.js?v=2026-08-08an";
+import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-08an";
+import { applyBakedLook } from "./bakedLook.js?v=2026-08-08an";
+import { getDesktopScreenTexture, handleDesktopScreenClick } from "./desktopScreen.js?v=2026-08-08an";
+import { getPhoneScreenTexture, handlePhoneScreenClick } from "./phoneScreen.js?v=2026-08-08an";
 
 // ---------------------------------------------------------------- renderer
 const canvas = document.getElementById("scene");
@@ -314,6 +316,24 @@ const SMOKE_RISE = 0.16; // meters over one particle's lifetime
 const SMOKE_DRIFT = 0.03; // meters of side-to-side wander at peak
 const SMOKE_BASE_SIZE = 0.035; // meters, sprite width at spawn
 const SMOKE_PEAK_OPACITY = 0.3;
+
+// the curtain hanging from its rod — a slow, tiny billow (front-to-back,
+// like it's breathing) rather than a side-to-side swing, since there's no
+// implied wind/draft anywhere else in the room; a wide side-sway would
+// read as "there's a breeze" when nothing else in the scene suggests one.
+const CURTAIN_MESH_PATTERN = /^curtain_01/i;
+let curtainPivot = null; // THREE.Group, set once during wiring, animated in animate()
+const CURTAIN_SWAY_AMPLITUDE = 0.018; // radians — small; a real gust would be much more than this
+const CURTAIN_SWAY_SPEED = 0.35; // radians/sec through the sine, i.e. a slow multi-second cycle
+
+// dust motes drifting through the window light — same sprite-particle
+// family as the smoke wisp, but smaller, dimmer, far slower, and spawned
+// across a volume (the window's own footprint, projected a little way into
+// the room) instead of rising from one fixed point.
+const modelDustMotes = []; // { sprite, basePos, driftPhase, driftAxis, life, age }
+const DUST_DRIFT = 0.05; // meters of wander over a particle's lifetime
+const DUST_BASE_SIZE = 0.02; // meters
+const DUST_PEAK_OPACITY = 0.22; // dimmer than smoke — these are meant to be a subtle, half-noticed detail
 
 // GLTFLoader replaces spaces in every node name with underscores when it
 // builds the scene graph (three.js's own PropertyBinding.sanitizeNodeName,
@@ -653,7 +673,31 @@ loadRoomModel((progress) => {
           console.warn(`prop wiring: "${rawName(root)}" expected a screen mesh matching ${screenPattern} but found none — falling back to whole-group framing.`);
         }
 
-        modelProps.push({ title: cleanTitle(rawName(root)), group: root, screenMesh });
+        // the desk computer's screen gets a live CanvasTexture (the fake
+        // desktop, see js/desktopScreen.js) and the phone's screen gets a
+        // mockup of the real contact form (see js/phoneScreen.js), instead
+        // of whatever plain material each shipped with — swapping the map
+        // here, once, at wiring time, rather than every time the screen is
+        // focused.
+        const isComputerScreen = rawName(root) === "desk computer - about me" && !!screenMesh;
+        const isPhoneScreen = rawName(root) === "phone-contact me" && !!screenMesh;
+        if (isComputerScreen || isPhoneScreen) {
+          const screenMat = new THREE.MeshBasicMaterial({
+            map: isComputerScreen ? getDesktopScreenTexture() : getPhoneScreenTexture(),
+          });
+          screenMat.toneMapped = false; // it's a screen — it emits its own light, scene lighting shouldn't touch it
+          screenMesh.material = Array.isArray(screenMesh.material)
+            ? screenMesh.material.map(() => screenMat)
+            : screenMat;
+        }
+
+        modelProps.push({
+          title: cleanTitle(rawName(root)),
+          group: root,
+          screenMesh,
+          isComputerScreen,
+          isPhoneScreen,
+        });
         meshes.forEach((m) => {
           m.userData = { interactive: true, kind: "groupModel", index: idx };
         });
@@ -893,9 +937,20 @@ loadRoomModel((progress) => {
           const unlit = new THREE.MeshBasicMaterial({
             name: mat.name,
             map: mat.map || null,
-            color: mat.map ? 0xffffff : mat.color,
+            // Same "emissive map = the base color map" idea as a real
+            // emissive texture, just via the tools MeshBasicMaterial
+            // actually has: no lighting to be dimmed BY in the first
+            // place, toneMapped:false skips the renderer's ACES curve
+            // (the same fix that made the "_baked" materials read at
+            // their real brightness instead of darkened), and a
+            // brighter-than-neutral color multiplier pushes it past
+            // "just as bright as the texture" into an actual glow —
+            // this is the one mesh in the room that's SUPPOSED to look
+            // like a bright sky/exterior view, not a lit surface.
+            color: mat.map ? new THREE.Color(1.35, 1.32, 1.22) : mat.color,
             side: THREE.DoubleSide,
           });
+          unlit.toneMapped = false;
           return unlit;
         });
         obj.material = Array.isArray(obj.material) ? newMats : newMats[0];
@@ -981,6 +1036,102 @@ loadRoomModel((progress) => {
         });
       }
       console.info(`ambient smoke wisp: ${SMOKE_COUNT} particle(s) started at the joint.`);
+    });
+
+    // curtain sway — a tiny ambient billow, always playing, purely
+    // decorative like the smoke above.
+    safeStep("curtain sway", () => {
+      let curtainMesh = null;
+      model.traverse((obj) => {
+        if (obj.isMesh && CURTAIN_MESH_PATTERN.test(rawName(obj)) && !curtainMesh) curtainMesh = obj;
+      });
+      if (!curtainMesh) {
+        console.warn(`curtain sway: no mesh matching ${CURTAIN_MESH_PATTERN} found in the model.`);
+        return;
+      }
+
+      // Rotating the curtain mesh directly would swing it around ITS OWN
+      // local origin — which, like the joint prop earlier, sits wherever
+      // the exporter happened to put it, nowhere near the curtain's actual
+      // visual position (that bug already cost real time once this
+      // session; not repeating it here). Object3D.attach() reparents a
+      // child while preserving its current WORLD transform, so building an
+      // empty pivot group at the curtain's own top-center (where it
+      // actually hangs from the rod) and attaching the mesh to THAT means
+      // rotating the pivot swings the curtain from the right point, not
+      // from some arbitrary export-time origin.
+      const box = new THREE.Box3().setFromObject(curtainMesh);
+      const pivotPos = new THREE.Vector3(
+        (box.min.x + box.max.x) / 2,
+        box.max.y, // top of the curtain, right where it meets the rod
+        (box.min.z + box.max.z) / 2
+      );
+      curtainPivot = new THREE.Group();
+      curtainPivot.position.copy(pivotPos);
+      scene.add(curtainPivot);
+      curtainPivot.attach(curtainMesh);
+      console.info("curtain sway: pivot attached at the rod, ready to animate.");
+    });
+
+    // dust motes drifting through the window light — purely decorative,
+    // same "cheap sprites, no shading limitations to fight" family as the
+    // smoke wisp, just slower/dimmer/spread over a volume instead of
+    // rising from one point.
+    safeStep("window dust motes", () => {
+      let windowMesh = null;
+      model.traverse((obj) => {
+        if (obj.isMesh && /^Windowpane/i.test(rawName(obj)) && !windowMesh) windowMesh = obj;
+      });
+      if (!windowMesh) {
+        console.warn("window dust motes: no \"Windowpane\" mesh found in the model.");
+        return;
+      }
+      const box = new THREE.Box3().setFromObject(windowMesh);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+
+      // window is thin in Z (it's a flat pane) — that's the "into the
+      // room" direction motes should drift across, using X/Y for the
+      // pane's actual width/height instead of guessing a fixed spread.
+      const spawnHalfWidth = Math.max(size.x, size.z) / 2 * 0.85; // stay a bit inside the pane's edges
+      const spawnHalfHeight = size.y / 2 * 0.85;
+      const roomwardDepth = 0.45; // meters the light shaft extends into the room from the pane
+
+      const dustTexture = makeDustMoteTexture();
+      const DUST_COUNT = 10;
+      modelDustMotes.length = 0;
+      for (let i = 0; i < DUST_COUNT; i++) {
+        const material = new THREE.SpriteMaterial({
+          map: dustTexture,
+          transparent: true,
+          depthWrite: false,
+          opacity: 0,
+        });
+        const sprite = new THREE.Sprite(material);
+        const s = DUST_BASE_SIZE * (0.7 + Math.random() * 0.6);
+        sprite.scale.set(s, s, 1);
+        sprite.renderOrder = 5;
+        scene.add(sprite);
+        const basePos = new THREE.Vector3(
+          center.x + (Math.random() * 2 - 1) * spawnHalfWidth,
+          center.y + (Math.random() * 2 - 1) * spawnHalfHeight,
+          // window's own bbox sits at the very negative end of the room's Z
+          // range (it's mounted on the far wall) — increasing Z from there
+          // is "into the room," which is the direction the light shaft
+          // should extend rather than drifting motes into the wall behind it
+          center.z + Math.random() * roomwardDepth
+        );
+        const life = 6 + Math.random() * 5; // slow — these should barely seem to move
+        modelDustMotes.push({
+          sprite,
+          basePos,
+          driftPhase: Math.random() * Math.PI * 2,
+          driftAxis: new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize(),
+          life,
+          age: Math.random() * life,
+        });
+      }
+      console.info(`window dust motes: ${DUST_COUNT} particle(s) started at the window.`);
     });
 
     // THIS is the step that actually makes anything clickable — it must
@@ -1218,6 +1369,34 @@ canvas.addEventListener("pointerup", (e) => {
       const obj = pickIntersect();
       if (obj && obj.userData.paperSheetIndex === 0) {
         cyclePaperDesign(1);
+        pointerDownPos = null;
+        return;
+      }
+    }
+    // while the desk computer screen is focused, route the tap to the fake
+    // desktop instead of exiting — raycasting against the screen mesh
+    // directly (not the shared allInteractiveObjects list) is what actually
+    // gets a .uv back, since that's the one piece of info the fake desktop
+    // needs to know WHERE on its own canvas got tapped. A tap that misses
+    // every hitbox (background, taskbar, etc) still falls through to the
+    // normal exit below, same as tapping "nothing" anywhere else.
+    if (focusedKind === "prop" && modelProps[focusedPropIndex]?.isComputerScreen) {
+      setPointerFromEvent(e);
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObject(modelProps[focusedPropIndex].screenMesh, false);
+      if (hits.length && hits[0].uv && handleDesktopScreenClick(hits[0].uv.x, hits[0].uv.y)) {
+        pointerDownPos = null;
+        return;
+      }
+    }
+    // same idea, but for the phone's contact-form mockup (see
+    // js/phoneScreen.js) — tapping a field/Submit/social icon opens the
+    // real contact page or social link instead of exiting focus.
+    if (focusedKind === "prop" && modelProps[focusedPropIndex]?.isPhoneScreen) {
+      setPointerFromEvent(e);
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObject(modelProps[focusedPropIndex].screenMesh, false);
+      if (hits.length && hits[0].uv && handlePhoneScreenClick(hits[0].uv.x, hits[0].uv.y)) {
         pointerDownPos = null;
         return;
       }
@@ -2319,6 +2498,11 @@ function tryRestoreViewState() {
   ensureEyesOpen();
   document.getElementById("intro-overlay").classList.add("hidden");
   setMobileMoveControlsVisible(true);
+  // this only ever runs on the "resumed from a reload" path — a fresh
+  // visit or new tab has nothing to restore and goes through
+  // startSeatedIntro instead — so this is specifically the "you didn't
+  // mean to reload, and you're right back where you were" moment.
+  showOneShotSubtitle("welcome-back-reload", "Welcome back. Thought I lost you there for a sec. Lol.", 3400);
   return true;
 }
 
@@ -2734,6 +2918,39 @@ function animate() {
   } catch (err) {
     console.error("ambient smoke wisp: per-frame update failed, disabling —", err);
     modelSmokeParticles.length = 0;
+  }
+
+  // curtain sway — unguarded per-frame code, same reasoning as the smoke
+  // try/catch above: this has no safeStep protection once it's running.
+  try {
+    if (curtainPivot) {
+      curtainPivot.rotation.x = Math.sin(t * CURTAIN_SWAY_SPEED) * CURTAIN_SWAY_AMPLITUDE;
+    }
+  } catch (err) {
+    console.error("curtain sway: per-frame update failed, disabling —", err);
+    curtainPivot = null;
+  }
+
+  // window dust motes — same family as the smoke wisp above, just drifting
+  // in a slow wobble around a fixed base position instead of rising.
+  try {
+    modelDustMotes.forEach((p) => {
+      p.age += delta;
+      if (p.age >= p.life) p.age = 0;
+      const frac = p.age / p.life;
+      const wobble = Math.sin(frac * Math.PI * 2 + p.driftPhase) * DUST_DRIFT;
+      p.sprite.position.set(
+        p.basePos.x + p.driftAxis.x * wobble,
+        p.basePos.y + p.driftAxis.y * wobble,
+        p.basePos.z + p.driftAxis.z * wobble
+      );
+      // fades in, holds, fades out over the loop rather than popping —
+      // sin(0..PI) over the fraction gives that shape for free
+      p.sprite.material.opacity = Math.sin(Math.PI * frac) * DUST_PEAK_OPACITY;
+    });
+  } catch (err) {
+    console.error("window dust motes: per-frame update failed, disabling —", err);
+    modelDustMotes.length = 0;
   }
 
   if (camTween) {

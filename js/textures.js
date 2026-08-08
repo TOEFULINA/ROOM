@@ -528,6 +528,28 @@ export function makeSmokeSpriteTexture() {
   return tex;
 }
 
+// A single tiny soft speck, not the multi-blob wisp shape above — dust
+// motes read as small bright points caught in a light shaft, not a cloud.
+// Warm/golden tint (vs. the smoke's neutral grey) since these are meant to
+// look sunlit.
+export function makeDustMoteTexture() {
+  const size = 32;
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d");
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grad.addColorStop(0, "rgba(255,244,214,0.95)");
+  grad.addColorStop(0.5, "rgba(255,238,190,0.5)");
+  grad.addColorStop(1, "rgba(255,238,190,0)");
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+  ctx.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 export function makeVinylLabelTexture(accent = "#ffce6b") {
   const c = document.createElement("canvas");
   c.width = c.height = 256;
