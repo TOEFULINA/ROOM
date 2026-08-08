@@ -8,11 +8,11 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 // local import (and on the <script src="js/main.js"> tag in index.html)
 // whenever you push a real change, so phones are forced to re-fetch
 // instead of serving what they already have cached.
-import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-07ze";
-import { loadRoomModel } from "./loadModel.js?v=2026-08-07ze";
-import { getArtCanvas, getArtTexture } from "./textures.js?v=2026-08-07ze";
-import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-07ze";
-import { applyBakedLook } from "./bakedLook.js?v=2026-08-07ze";
+import { buildCeiling, buildCarpet, ROOM, CAMERA_START } from "./room.js?v=2026-08-07zj";
+import { loadRoomModel } from "./loadModel.js?v=2026-08-07zj";
+import { getArtCanvas, getArtTexture } from "./textures.js?v=2026-08-07zj";
+import { CLOTHING, CANVAS_DESIGNS, PAPER_ILLUSTRATIONS } from "./data.js?v=2026-08-07zj";
+import { applyBakedLook } from "./bakedLook.js?v=2026-08-07zj";
 
 // ---------------------------------------------------------------- renderer
 const canvas = document.getElementById("scene");
@@ -1039,7 +1039,15 @@ canvas.addEventListener("pointermove", (e) => {
     // pressMoveKey). Every OTHER focused view (props, vinyl, rack) keeps
     // the camera fully locked, so it can't fight a focus-view tween.
     if (viewState === "free" || (viewState === "focused" && focusedKind === "seat")) {
-      applyLookDelta(e.movementX, e.movementY);
+      // Touch drag feels backwards using the same convention as mouse-look:
+      // mouse-look treats the drag as steering the CAMERA (drag right, camera
+      // turns right, the room slides left under it — standard FPS mouselook).
+      // On a touchscreen people expect the opposite: drag right and the ROOM
+      // should slide right with your finger, like panning a photo. That's
+      // just the camera turning the other way, so touch input gets its delta
+      // negated before it ever reaches applyLookDelta; mouse/pen are untouched.
+      const invert = e.pointerType === "touch" ? -1 : 1;
+      applyLookDelta(e.movementX * invert, e.movementY * invert);
     }
   }
   if (viewState !== "free") return; // no hover effects while zoomed in or mid-transition
